@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "RUBEZH STRAZH — печать пропусков",
+  "version": "1.0.0",
+  "description": "Локальная подготовка и печать пропусков из RUBEZH STRAZH.",
+  "permissions": ["storage", "activeTab", "scripting", "nativeMessaging"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "action": { "default_title": "Печать пропуска", "default_popup": "src/popup.html" },
+  "background": { "service_worker": "src/background.js", "type": "module" },
+  "options_page": "src/options.html",
+  "web_accessible_resources": [{"resources":["src/print-dialog.html"],"matches":["http://*/*","https://*/*"]}]
+}

@@ -1,0 +1,56 @@
+name: Build release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build extension
+        shell: pwsh
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+          New-Item -ItemType Directory -Force artifacts/extension | Out-Null
+          Copy-Item manifest.json artifacts/extension/
+          Copy-Item src artifacts/extension/src -Recurse
+          Copy-Item README.md artifacts/extension/
+          Compress-Archive artifacts/extension/* artifacts/rubezh-strazh-extension-${{ github.ref_name }}.zip
+
+      - name: Build Windows Print Bridge
+        shell: pwsh
+        run: |
+          dotnet publish native-host/RubezhPrintBridge/RubezhPrintBridge.csproj -c Release -o native-host/publish
+          New-Item -ItemType Directory -Force artifacts/windows-package/native-host/publish | Out-Null
+          New-Item -ItemType Directory -Force artifacts/windows-package/installer | Out-Null
+          Copy-Item native-host/publish/RubezhPrintBridge.exe artifacts/windows-package/native-host/publish/
+          Copy-Item native-host/ru.fmba.rubezh_print_bridge.json artifacts/windows-package/native-host/
+          Copy-Item installer/install.ps1 artifacts/windows-package/installer/
+          Copy-Item README.md artifacts/windows-package/
+          Compress-Archive artifacts/windows-package/* artifacts/rubezh-print-bridge-windows-x64-${{ github.ref_name }}.zip
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/rubezh-strazh-extension-${{ github.ref_name }}.zip
+            artifacts/rubezh-print-bridge-windows-x64-${{ github.ref_name }}.zip

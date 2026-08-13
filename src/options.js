@@ -1,0 +1,23 @@
+import { DEFAULT_SETTINGS } from './types.js';
+const f = document.querySelector('#settings-form'), msg = document.querySelector('#save-status');
+async function load() { const s = { ...DEFAULT_SETTINGS, ...await chrome.storage.local.get(DEFAULT_SETTINGS) }; for (const [k, v] of Object.entries(s)) {
+    const e = f.elements.namedItem(k);
+    if (e instanceof HTMLInputElement)
+        e.type === 'checkbox' ? e.checked = Boolean(v) : e.value = String(v);
+} }
+f.onsubmit = async (e) => { e.preventDefault(); const s = { allowedOrigin: String(new FormData(f).get('allowedOrigin') || '').replace(/\/$/, ''), printer: String(new FormData(f).get('printer') || ''), autoNormalize: f.elements.namedItem('autoNormalize').checked, showPreview: f.elements.namedItem('showPreview').checked, debug: f.elements.namedItem('debug').checked }; try {
+    const origin = new URL(s.allowedOrigin).origin;
+    const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
+    if (!granted)
+        throw new Error('доступ к адресу не разрешён');
+    await chrome.storage.local.set(s);
+    await chrome.runtime.sendMessage({ type: 'REGISTER_ORIGIN', origin });
+    msg.textContent = 'Настройки сохранены';
+}
+catch (err) {
+    msg.textContent = `Ошибка: ${err}`;
+} };
+document.querySelector('#check').onclick = async () => { const r = await chrome.runtime.sendMessage({ type: 'NATIVE', payload: { command: 'diagnose' } }); msg.textContent = r?.ok ? `Мост подключён. Принтеров: ${r.printers?.length || 0}` : 'Компонент локальной печати не установлен или не запущен.'; };
+void load();
+document.querySelector('#test-print').onclick = async () => { const s = { ...DEFAULT_SETTINGS, ...await chrome.storage.local.get(DEFAULT_SETTINGS) }; const c = document.createElement('canvas'); c.width = 1012; c.height = 638; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.strokeStyle = '#111'; x.lineWidth = 4; x.strokeRect(4, 4, 1004, 630); x.fillStyle = '#111'; x.textAlign = 'center'; x.font = '700 48px Arial'; x.fillText('ТЕСТОВАЯ КАРТА', 506, 250); x.font = '28px Arial'; x.fillText('CR80 · 85,6 × 54 мм · 300 DPI', 506, 330); const r = await chrome.runtime.sendMessage({ type: 'NATIVE', payload: { command: 'print', job: { printer: s.printer, copies: 1, imageDataUrl: c.toDataURL('image/png'), dpi: 300 } } }); msg.textContent = r?.ok ? 'Тестовая карта отправлена.' : r?.message || 'Ошибка тестовой печати.'; };
+void load();

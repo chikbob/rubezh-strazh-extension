@@ -1,0 +1,69 @@
+import { normalizePosition } from './positionNormalizer.js';
+const W = 1012, H = 638, DPI = 300;
+function centered(ctx, text, y, size, weight = 700) { ctx.font = `${weight} ${size}px Arial`; ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.fillText(text, W / 2, y); }
+async function loadImage(src) { return await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src; }); }
+export async function renderCard(type, e, positionOverride, auto = true) {
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const x = c.getContext('2d');
+    x.fillStyle = '#fff';
+    x.fillRect(0, 0, W, H);
+    x.strokeStyle = '#ddd';
+    x.strokeRect(1, 1, W - 2, H - 2);
+    x.fillStyle = type === 'mosn' ? '#b11226' : type === 'temporary' ? '#355a88' : '#174a7e';
+    x.fillRect(0, 0, W, 76);
+    x.fillStyle = '#fff';
+    x.font = '700 27px Arial';
+    x.textAlign = 'center';
+    x.fillText('ММЦ ФГБУЗ ЮОМЦ ФМБА России', W / 2, 49);
+    if (type === 'temporary') {
+        centered(x, 'ВРЕМЕННЫЙ', 180, 62);
+        centered(x, 'ПРОПУСК', 260, 68);
+        centered(x, e.employeeNumber || 'БЕЗ НОМЕРА', 390, 58);
+        centered(x, e.fullName, 500, 34);
+        return { dataUrl: c.toDataURL('image/png'), position: { text: '', lines: [], fontSize: 0, fits: true, changed: false }, warnings: [] };
+    }
+    if (e.photo?.dataUrl)
+        try {
+            const im = await loadImage(e.photo.dataUrl), box = { x: 58, y: 112, w: 285, h: 380 }, s = Math.max(box.w / im.width, box.h / im.height), sw = box.w / s, sh = box.h / s;
+            x.drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, box.x, box.y, box.w, box.h);
+        }
+        catch { }
+    else {
+        x.fillStyle = '#eee';
+        x.fillRect(58, 112, 285, 380);
+        centered(x, 'НЕТ ФОТО', 310, 24, 400);
+    }
+    if (type === 'mosn') {
+        x.fillStyle = '#b11226';
+        x.font = '800 54px Arial';
+        x.textAlign = 'center';
+        x.fillText('МОСН', 680, 145);
+    }
+    const surname = e.surname || '', given = [e.name, e.patronymic].filter(Boolean).join(' ');
+    x.textAlign = 'left';
+    x.fillStyle = '#111';
+    x.font = '700 48px Arial';
+    x.fillText(surname, 385, 230);
+    x.font = '600 34px Arial';
+    x.fillText(given, 385, 282);
+    const fit = normalizePosition(x, positionOverride ?? e.position ?? '', { fontFamily: 'Arial', fontSize: 31, minScale: .85, maxWidth: 565, maxLines: 2, lineHeight: 39 }, auto);
+    x.font = `600 ${fit.fontSize}px Arial`;
+    fit.lines.forEach((l, i) => x.fillText(l, 385, 360 + i * 39));
+    x.font = '500 25px Arial';
+    x.fillText(e.department || '', 385, 465, 565);
+    if (type === 'employee') {
+        x.font = '700 27px Arial';
+        x.fillText(`Таб. ${e.employeeNumber || ''}`, 385, 535);
+    }
+    const warnings = [];
+    if (!e.photo)
+        warnings.push('В карточке сотрудника отсутствует фотография.');
+    else if ((e.photo.width || 0) < 300 || (e.photo.height || 0) < 400)
+        warnings.push('Разрешение фотографии может быть недостаточным для печати.');
+    if (!fit.fits)
+        warnings.push('Название должности не помещается в область печати.');
+    return { dataUrl: c.toDataURL('image/png'), position: fit, warnings };
+}
+export const CARD_DPI = DPI;
