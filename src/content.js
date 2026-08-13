@@ -24,11 +24,11 @@
   // extension-ts/adapter.ts
   var clean = (v) => v.replace(/\s+/g, " ").trim();
   function allRoots() {
-    const roots = [document];
+    const roots2 = [document];
     document.querySelectorAll("*").forEach((e) => {
-      if (e.shadowRoot) roots.push(e.shadowRoot);
+      if (e.shadowRoot) roots2.push(e.shadowRoot);
     });
-    return roots;
+    return roots2;
   }
   function findByLabel(labels) {
     for (const root of allRoots()) for (const label of Array.from(root.querySelectorAll("label"))) {
@@ -82,12 +82,12 @@
         if (e) return e;
       }
       for (const r of allRoots()) {
-        const buttons2 = Array.from(r.querySelectorAll("employee_view button,employee-view button,.employee-view button"));
-        for (const button of buttons2) {
-          const clues = [button.textContent, button.getAttribute("title"), button.getAttribute("aria-label"), button.className, button.innerHTML].join(" ").toLowerCase();
-          if (/сохран|save|floppy|disk/.test(clues)) return button;
+        const buttons = Array.from(r.querySelectorAll("employee_view button,employee-view button,.employee-view button"));
+        for (const button of buttons) {
+          const clues2 = [button.textContent, button.getAttribute("title"), button.getAttribute("aria-label"), button.className, button.innerHTML].join(" ").toLowerCase();
+          if (/сохран|save|floppy|disk/.test(clues2)) return button;
         }
-        for (const button of buttons2) {
+        for (const button of buttons) {
           const next = button.nextElementSibling;
           const nextClues = [next?.className, next?.innerHTML, next?.getAttribute("title")].join(" ").toLowerCase();
           if (next && /trash|delete|удал|корзин/.test(nextClues)) return button;
@@ -112,61 +112,83 @@
     }
   };
 
-  // extension-ts/types.ts
-  var DEFAULT_SETTINGS = { allowedOrigin: "http://10.250.225.16", debug: false };
-
   // extension-ts/content.ts
   var adapter = new RubezhAdapter();
-  var ID = "rubezh-pass-print-actions";
-  var buttons = [["employee", "\u041F\u0435\u0447\u0430\u0442\u044C: \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A"], ["mosn", "\u041F\u0435\u0447\u0430\u0442\u044C: \u041C\u041E\u0421\u041D"], ["temporary", "\u041F\u0435\u0447\u0430\u0442\u044C: \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u044B\u0439"]];
-  async function print(type) {
-    const employee = await adapter.getEmployeeData();
-    if (!employee.fullName) {
-      alert("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u044C \u0424\u0418\u041E \u0438\u0437 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 RUBEZH STRAZH.");
-      return;
-    }
-    await chrome.runtime.sendMessage({ type: "PRINT_PASS", passType: type, employee });
+  var MARK = "data-rubezh-pass-button";
+  var passes = [["employee", "\u0421", "\u041F\u0435\u0447\u0430\u0442\u044C \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430"], ["mosn", "\u041C", "\u041F\u0435\u0447\u0430\u0442\u044C \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430 \u041C\u041E\u0421\u041D"], ["temporary", "\u0412", "\u041F\u0435\u0447\u0430\u0442\u044C \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E\u0433\u043E \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430"]];
+  function roots() {
+    const result = [document];
+    for (const element of Array.from(document.querySelectorAll("*"))) if (element.shadowRoot) result.push(element.shadowRoot);
+    return result;
   }
-  async function inject() {
-    if (!adapter.isEmployeePage() || document.getElementById(ID)) return;
-    const settings = { ...DEFAULT_SETTINGS, ...await chrome.storage.local.get(DEFAULT_SETTINGS) };
-    if (location.origin !== new URL(settings.allowedOrigin).origin) return;
-    const anchor = adapter.getActionAnchor();
-    if (!anchor) {
-      if (settings.debug) console.warn("[RUBEZH Pass Printer] \u041A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 \u043D\u0430\u0439\u0434\u0435\u043D\u0430, \u043D\u043E \u043A\u043D\u043E\u043F\u043A\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430.");
+  function clues(element) {
+    return element ? [element.getAttribute("title"), element.getAttribute("aria-label"), element.getAttribute("class"), element.innerHTML, element.textContent].filter(Boolean).join(" ").toLowerCase() : "";
+  }
+  function isDelete(button) {
+    return !!button && /trash|delete|remove|удал|корзин|fa-trash|glyphicon-trash/.test(clues(button));
+  }
+  function isSave(button) {
+    return !!button && /save|сохран|floppy|disk|fa-save|fa-floppy|glyphicon-floppy/.test(clues(button));
+  }
+  function buttonsIn(root) {
+    return Array.from(root.querySelectorAll('button,input[type="button"],input[type="submit"]'));
+  }
+  function findSaveButton() {
+    for (const root of roots()) for (const button of buttonsIn(root)) if (isSave(button)) return button;
+    for (const root of roots()) for (const deleteButton of buttonsIn(root).filter(isDelete)) {
+      const previous = deleteButton.previousElementSibling;
+      if (previous instanceof HTMLElement && previous.matches('button,input[type="button"],input[type="submit"]')) return previous;
+      const siblings = Array.from(deleteButton.parentElement?.children || []);
+      const index = siblings.indexOf(deleteButton);
+      const candidate = siblings[index - 1];
+      if (candidate instanceof HTMLElement && candidate.matches('button,input[type="button"],input[type="submit"]')) return candidate;
+    }
+    return null;
+  }
+  function makeButton(save, type, letter, title) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = save.className;
+    button.setAttribute(MARK, type);
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.textContent = letter;
+    const rect = save.getBoundingClientRect();
+    const computed = getComputedStyle(save);
+    Object.assign(button.style, { width: rect.width ? `${rect.width}px` : computed.width, height: rect.height ? `${rect.height}px` : computed.height, minWidth: rect.width ? `${rect.width}px` : computed.minWidth, minHeight: rect.height ? `${rect.height}px` : computed.minHeight, padding: computed.padding, margin: computed.margin, border: computed.border, borderRadius: computed.borderRadius, background: computed.background, color: computed.color, fontFamily: computed.fontFamily, fontSize: computed.fontSize, fontWeight: "700", lineHeight: computed.lineHeight, verticalAlign: computed.verticalAlign, cursor: "pointer" });
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const employee = await adapter.getEmployeeData();
+      if (!employee.fullName) {
+        alert("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u044C \u0424\u0418\u041E \u0438\u0437 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 RUBEZH STRAZH.");
+        return;
+      }
+      await chrome.runtime.sendMessage({ type: "PRINT_PASS", passType: type, employee });
+    });
+    return button;
+  }
+  function inject() {
+    const existing = document.querySelectorAll(`[${MARK}]`);
+    const save = findSaveButton();
+    if (!save) {
+      existing.forEach((element) => element.remove());
       return;
     }
-    const group = document.createElement("span");
-    group.id = ID;
-    group.setAttribute("role", "group");
-    group.setAttribute("aria-label", "\u041F\u0435\u0447\u0430\u0442\u044C \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430");
-    Object.assign(group.style, { display: "inline-flex", gap: "6px", margin: "0 6px", verticalAlign: "middle", flexWrap: "wrap" });
-    for (const [type, label] of buttons) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = label;
-      button.dataset.passType = type;
-      Object.assign(button.style, { padding: "7px 10px", border: "1px solid #2475a7", borderRadius: "3px", background: "#fff", color: "#2475a7", cursor: "pointer", font: "inherit", whiteSpace: "nowrap" });
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        void print(type);
-      });
-      group.append(button);
-    }
-    if (anchor.matches("button")) anchor.insertAdjacentElement("afterend", group);
-    else anchor.append(group);
-    if (settings.debug) console.info("[RUBEZH Pass Printer] \u041A\u043D\u043E\u043F\u043A\u0438 \u043F\u0435\u0447\u0430\u0442\u0438 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B.", { root: document.querySelector("employee_view,employee-view"), anchor });
+    if (existing.length === passes.length && existing[existing.length - 1].nextElementSibling === save) return;
+    existing.forEach((element) => element.remove());
+    for (const [type, letter, title] of passes) save.parentElement?.insertBefore(makeButton(save, type, letter, title), save);
   }
   var scheduled = false;
-  var schedule = () => {
+  function schedule() {
     if (scheduled) return;
     scheduled = true;
     requestAnimationFrame(() => {
       scheduled = false;
-      void inject();
+      inject();
     });
-  };
+  }
   new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
   schedule();
+  window.setInterval(schedule, 1500);
 })();
