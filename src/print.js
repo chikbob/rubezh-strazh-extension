@@ -1,0 +1,18 @@
+import { renderCard } from './renderer.js';
+async function main() { const stored = await chrome.storage.session.get('printPayload'); const payload = stored.printPayload; const status = document.querySelector('#status'); if (!payload) {
+    status.textContent = 'Данные пропуска не найдены.';
+    return;
+} try {
+    const dataUrl = await renderCard(payload.type, payload.employee);
+    const image = document.querySelector('#card');
+    image.src = dataUrl;
+    await image.decode();
+    document.title = `Пропуск — ${payload.employee.fullName}`;
+    status.remove();
+    window.setTimeout(() => window.print(), 150);
+}
+catch (error) {
+    status.textContent = `Не удалось сформировать пропуск: ${String(error)}`;
+} }
+window.addEventListener('afterprint', () => { void chrome.storage.session.remove('printPayload'); window.close(); });
+void main();

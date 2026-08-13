@@ -15,7 +15,7 @@ async function imageToData(el:Element):Promise<EmployeePhoto|null>{
 }
 export class RubezhAdapter{
  isEmployeePage(){return EMPLOYEE_ROOTS.some(s=>allRoots().some(r=>r.querySelector(s)))||!!findByLabel(FIELD_LABELS.surname)}
- getActionAnchor(){for(const r of allRoots())for(const s of ACTION_SELECTORS){const e=r.querySelector(s);if(e)return e}return null}
+ getActionAnchor(){for(const r of allRoots())for(const s of ACTION_SELECTORS){const e=r.querySelector(s);if(e)return e}for(const r of allRoots())for(const button of Array.from(r.querySelectorAll('employee-view button, .employee-view button'))){const clues=[button.textContent,button.getAttribute('title'),button.getAttribute('aria-label'),button.className,button.innerHTML].join(' ').toLowerCase();if(/сохран|save|floppy/.test(clues))return button}return null}
  async getPhoto(){for(const r of allRoots())for(const s of PHOTO_SELECTORS){const e=r.querySelector(s);if(e){const p=await imageToData(e);if(p)return p}}return null}
  async getEmployeeData():Promise<EmployeeData>{const value=(k:string)=>clean(findByLabel(FIELD_LABELS[k])?.value||'');const surname=value('surname'),name=value('name'),patronymic=value('patronymic');return{surname,name,patronymic,fullName:clean([surname,name,patronymic].filter(Boolean).join(' ')),employeeNumber:value('employeeNumber'),position:value('position'),department:value('department'),comment:value('comment'),accessProfile:value('accessProfile'),personalEntryPoint:value('personalEntryPoint'),loginUser:value('loginUser'),pin:value('pin'),vehicleNumber:value('vehicleNumber'),photo:await this.getPhoto()||undefined}}
 }

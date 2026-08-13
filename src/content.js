@@ -17,7 +17,7 @@
   };
   var EMPLOYEE_ROOTS = ["employee-view", '[data-view="employee"]', ".employee-view"];
   var PHOTO_SELECTORS = ["employee-view img[src]", ".employee-photo img[src]", 'img[alt*="\u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A" i]', 'img[alt*="\u0444\u043E\u0442\u043E" i]', "employee-view canvas"];
-  var ACTION_SELECTORS = ['employee-view button[title*="\u0441\u043E\u0445\u0440\u0430\u043D" i]', 'employee-view button[type="submit"]', "employee-view .panel-heading", ".employee-view .panel-heading"];
+  var ACTION_SELECTORS = ['employee-view button[title*="\u0441\u043E\u0445\u0440\u0430\u043D" i]', 'employee-view button[aria-label*="\u0441\u043E\u0445\u0440\u0430\u043D" i]', "employee-view button:has(.fa-save)", "employee-view button:has(.fa-floppy-o)", "employee-view button:has(.glyphicon-floppy-disk)", "employee-view button:has(.glyphicon-floppy-save)", 'employee-view button:has([class*="save"])', 'employee-view button[type="submit"]', "employee-view .panel-heading", ".employee-view .panel-heading"];
 
   // extension-ts/adapter.ts
   var clean = (v) => v.replace(/\s+/g, " ").trim();
@@ -79,6 +79,10 @@
         const e = r.querySelector(s);
         if (e) return e;
       }
+      for (const r of allRoots()) for (const button of Array.from(r.querySelectorAll("employee-view button, .employee-view button"))) {
+        const clues = [button.textContent, button.getAttribute("title"), button.getAttribute("aria-label"), button.className, button.innerHTML].join(" ").toLowerCase();
+        if (/сохран|save|floppy/.test(clues)) return button;
+      }
       return null;
     }
     async getPhoto() {
@@ -98,24 +102,56 @@
     }
   };
 
+  // extension-ts/types.ts
+  var DEFAULT_SETTINGS = { allowedOrigin: "http://10.250.225.16", debug: false };
+
   // extension-ts/content.ts
-  var a = new RubezhAdapter();
-  var ID = "rubezh-pass-print-button";
-  async function inject() {
-    if (!a.isEmployeePage() || document.getElementById(ID)) return;
-    const b = document.createElement("button");
-    b.id = ID;
-    b.type = "button";
-    b.textContent = "\u041F\u0435\u0447\u0430\u0442\u044C \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430";
-    Object.assign(b.style, { margin: "6px", padding: "8px 14px", border: "1px solid #2374a6", borderRadius: "3px", background: "#fff", color: "#2374a6", cursor: "pointer", font: "inherit" });
-    b.addEventListener("click", async () => chrome.runtime.sendMessage({ type: "OPEN_PRINT_DIALOG", employee: await a.getEmployeeData() }));
-    const anchor = a.getActionAnchor();
-    (anchor?.parentElement || document.querySelector("employee-view") || document.body).append(b);
+  var adapter = new RubezhAdapter();
+  var ID = "rubezh-pass-print-actions";
+  var buttons = [["employee", "\u041F\u0435\u0447\u0430\u0442\u044C: \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A"], ["mosn", "\u041F\u0435\u0447\u0430\u0442\u044C: \u041C\u041E\u0421\u041D"], ["temporary", "\u041F\u0435\u0447\u0430\u0442\u044C: \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u044B\u0439"]];
+  async function print(type) {
+    const employee = await adapter.getEmployeeData();
+    if (!employee.fullName) {
+      alert("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u044C \u0424\u0418\u041E \u0438\u0437 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 RUBEZH STRAZH.");
+      return;
+    }
+    await chrome.runtime.sendMessage({ type: "PRINT_PASS", passType: type, employee });
   }
-  new MutationObserver(() => void inject()).observe(document.documentElement, { childList: true, subtree: true });
-  void inject();
-  chrome.runtime.onMessage.addListener((m, _s, reply) => {
-    if (m.type === "GET_EMPLOYEE") a.getEmployeeData().then((employee) => reply({ ok: true, employee })).catch((error) => reply({ ok: false, error: String(error) }));
-    return true;
-  });
+  async function inject() {
+    if (!adapter.isEmployeePage() || document.getElementById(ID)) return;
+    const settings = { ...DEFAULT_SETTINGS, ...await chrome.storage.local.get(DEFAULT_SETTINGS) };
+    if (location.origin !== new URL(settings.allowedOrigin).origin) return;
+    const anchor = adapter.getActionAnchor();
+    if (!anchor) return;
+    const group = document.createElement("span");
+    group.id = ID;
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", "\u041F\u0435\u0447\u0430\u0442\u044C \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430");
+    Object.assign(group.style, { display: "inline-flex", gap: "6px", margin: "0 6px", verticalAlign: "middle", flexWrap: "wrap" });
+    for (const [type, label] of buttons) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.dataset.passType = type;
+      Object.assign(button.style, { padding: "7px 10px", border: "1px solid #2475a7", borderRadius: "3px", background: "#fff", color: "#2475a7", cursor: "pointer", font: "inherit", whiteSpace: "nowrap" });
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void print(type);
+      });
+      group.append(button);
+    }
+    anchor.insertAdjacentElement("afterend", group);
+  }
+  var scheduled = false;
+  var schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      void inject();
+    });
+  };
+  new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
+  schedule();
 })();

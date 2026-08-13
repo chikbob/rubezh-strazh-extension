@@ -1,1 +1,1 @@
-export const DEFAULT_SETTINGS = { allowedOrigin: 'http://10.250.225.16', printer: '', autoNormalize: true, showPreview: true, debug: false, templates: { employee: 'Встроенный', mosn: 'Встроенный', temporary: 'Встроенный' } };
+export const DEFAULT_SETTINGS = { allowedOrigin: 'http://10.250.225.16', debug: false };
