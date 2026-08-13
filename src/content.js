@@ -96,9 +96,16 @@
       return document.querySelector("employee_view .panel-heading,employee-view .panel-heading,.employee-view .panel-heading,employee_view header,employee-view header");
     }
     async getPhoto() {
+      for (const r of allRoots()) {
+        const dataPhoto = Array.from(r.querySelectorAll("img")).find((image) => image.src.startsWith("data:image/jpeg") || image.src.startsWith("data:image/png"));
+        if (dataPhoto) {
+          const p = await imageToData(dataPhoto);
+          if (p) return p;
+        }
+      }
       for (const r of allRoots()) for (const s of PHOTO_SELECTORS) {
-        const e = r.querySelector(s);
-        if (e) {
+        for (const e of Array.from(r.querySelectorAll(s))) {
+          if (e instanceof HTMLImageElement && /brand-icon|logo/i.test(e.src)) continue;
           const p = await imageToData(e);
           if (p) return p;
         }
@@ -108,7 +115,9 @@
     async getEmployeeData() {
       const value = (k) => clean(findByLabel(FIELD_LABELS[k])?.value || "");
       const surname = value("surname"), name = value("name"), patronymic = value("patronymic");
-      return { surname, name, patronymic, fullName: clean([surname, name, patronymic].filter(Boolean).join(" ")), employeeNumber: value("employeeNumber"), position: value("position"), department: value("department"), comment: value("comment"), accessProfile: value("accessProfile"), personalEntryPoint: value("personalEntryPoint"), loginUser: value("loginUser"), pin: value("pin"), vehicleNumber: value("vehicleNumber"), photo: await this.getPhoto() || void 0 };
+      const body = clean(document.body.innerText);
+      const passNumber = body.match(/\b(\d{7,10})\s*-\s*уровень\b/i)?.[1];
+      return { surname, name, patronymic, fullName: clean([surname, name, patronymic].filter(Boolean).join(" ")), employeeNumber: value("employeeNumber"), passNumber, position: value("position"), department: value("department"), comment: value("comment"), accessProfile: value("accessProfile"), personalEntryPoint: value("personalEntryPoint"), loginUser: value("loginUser"), pin: value("pin"), vehicleNumber: value("vehicleNumber"), photo: await this.getPhoto() || void 0 };
     }
   };
 

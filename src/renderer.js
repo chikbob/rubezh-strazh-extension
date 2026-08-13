@@ -1,80 +1,65 @@
 import { normalizePosition } from './positionNormalizer.js';
 export const CARD = { widthPx: 1012, heightPx: 638, widthMm: 85.6, heightMm: 54, dpi: 300 };
-const asset = (name) => chrome.runtime.getURL(`src/assets/${name}`);
+const asset = (name) => chrome.runtime.getURL(`src/assets/${name}`), ORGANIZATION = 'ММЦ ФГБУЗ ЮОМЦ ФМБА России';
 const load = (src) => new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = reject; image.src = src; });
-function cover(ctx, image, iw, ih, x, y, w, h) { const scale = Math.max(w / iw, h / ih), sw = w / scale, sh = h / scale; ctx.drawImage(image, (iw - sw) / 2, (ih - sh) / 2, sw, sh, x, y, w, h); }
-function fitted(ctx, text, x, y, w, h, size, weight = 400) { let px = size; do {
+function cover(ctx, image, x, y, w, h) { const scale = Math.max(w / image.naturalWidth, h / image.naturalHeight), sw = w / scale, sh = h / scale; ctx.drawImage(image, (image.naturalWidth - sw) / 2, (image.naturalHeight - sh) / 2, sw, sh, x, y, w, h); }
+function text(ctx, value, x, y, maxWidth, size, weight = 400) { let px = size; while (px > 18) {
     ctx.font = `${weight} ${px}px Arial`;
-    if (ctx.measureText(text).width <= w)
+    if (ctx.measureText(value).width <= maxWidth)
         break;
     px--;
-} while (px >= 18); ctx.fillText(text, x, y + (h + px * .72) / 2); }
+} ctx.fillText(value, x, y); }
+async function base() { const canvas = document.createElement('canvas'); canvas.width = CARD.widthPx; canvas.height = CARD.heightPx; const ctx = canvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 1012, 638); const background = await load(asset('medical-background.jpg')); ctx.drawImage(background, 0, 64, 440, 574); ctx.fillStyle = '#111'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left'; ctx.font = '400 43px Arial'; ctx.textAlign = 'center'; ctx.fillText(ORGANIZATION, 506, 50); ctx.textAlign = 'left'; return { canvas, ctx }; }
+function photoFrame(ctx, photo) { ctx.fillStyle = '#eee'; ctx.fillRect(33, 96, 375, 505); cover(ctx, photo, 33, 96, 375, 505); }
+function emblem(ctx, image, x, y, w, h) { ctx.drawImage(image, x, y, w, h); }
 export async function renderCard(type, e) {
-    const canvas = document.createElement('canvas');
-    canvas.width = CARD.widthPx;
-    canvas.height = CARD.heightPx;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const bg = await load(asset('medical-background.jpg'));
-    ctx.drawImage(bg, 0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#111';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
+    const { canvas, ctx } = await base();
     if (type === 'temporary') {
-        const emblem = await load(asset('emblem-color.png'));
-        ctx.globalAlpha = .13;
-        ctx.drawImage(emblem, 610, 35, 350, 470);
-        ctx.globalAlpha = 1;
-        ctx.textAlign = 'center';
-        ctx.font = '700 52px Arial';
-        ctx.fillText('ВРЕМЕННЫЙ', 735, 175);
-        ctx.font = '700 58px Arial';
-        ctx.fillText('ПРОПУСК', 735, 252);
-        ctx.font = '700 42px Arial';
-        ctx.fillText(e.employeeNumber || 'БЕЗ НОМЕРА', 735, 345);
-        ctx.font = '700 31px Arial';
-        ctx.fillText(e.fullName, 735, 422);
-        ctx.font = '400 25px Arial';
-        ctx.fillText(e.department || '', 735, 468, 500);
-        ctx.font = '700 25px Arial';
-        ctx.fillText('ММЦ ФГБУЗ ЮОМЦ ФМБА России', 506, 585);
+        const color = await load(asset('emblem-color.png'));
+        emblem(ctx, color, 32, 96, 375, 505);
+        ctx.font = '400 58px Arial';
+        ctx.fillText('ВРЕМЕННЫЙ', 466, 216);
+        ctx.font = '400 76px Arial';
+        ctx.fillText('ПРОПУСК', 466, 392);
+        ctx.font = '400 37px Arial';
+        ctx.fillText('№ Пропуска', 466, 548);
+        ctx.font = '400 39px Arial';
+        ctx.fillText(e.passNumber || e.employeeNumber || '', 466, 611);
+        ctx.font = '700 39px Arial';
+        ctx.fillText('МО', 914, 609);
         return canvas.toDataURL('image/png');
     }
     if (e.photo?.dataUrl) {
         try {
-            const photo = await load(e.photo.dataUrl);
-            cover(ctx, photo, photo.naturalWidth, photo.naturalHeight, 28, 44, 400, 540);
+            photoFrame(ctx, await load(e.photo.dataUrl));
         }
         catch { }
     }
-    else {
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(28, 44, 400, 540);
-        ctx.fillStyle = '#555';
-        ctx.textAlign = 'center';
-        ctx.font = '24px Arial';
-        ctx.fillText('ФОТО ОТСУТСТВУЕТ', 228, 320);
-    }
+    const black = await load(asset('emblem-black.png'));
+    emblem(ctx, black, 800, 425, 205, 205);
+    const x = 456, w = 540;
     ctx.fillStyle = '#111';
-    ctx.textAlign = 'left';
-    fitted(ctx, e.surname, 457, 12, 555, 50, 38, 700);
-    fitted(ctx, e.name, 456, 83, 556, 50, 36, 700);
-    fitted(ctx, e.patronymic || '', 457, 154, 555, 50, 34, 700);
-    const fit = normalizePosition(ctx, e.position || '', { fontFamily: 'Arial', fontSize: 31, minScale: .85, maxWidth: 556, maxLines: 2, lineHeight: 34 }, true);
-    ctx.font = `600 ${fit.fontSize}px Arial`;
-    fit.lines.forEach((line, index) => ctx.fillText(line, 456, 250 + index * 34));
-    if (type === 'employee') {
-        ctx.font = '700 28px Arial';
-        ctx.fillText(`Таб. ${e.employeeNumber || ''}`, 456, 342);
+    text(ctx, e.surname, x, 123, w, 39);
+    text(ctx, e.name, x, 193, w, 39);
+    text(ctx, e.patronymic || '', x, 263, w, 39);
+    const fit = normalizePosition(ctx, e.position || '', { fontFamily: 'Arial', fontSize: 32, minScale: .85, maxWidth: w, maxLines: 2, lineHeight: 36 }, true);
+    ctx.font = `400 ${fit.fontSize}px Arial`;
+    fit.lines.forEach((line, index) => ctx.fillText(line, x, 333 + index * 36));
+    if (type === 'mosn') {
+        ctx.font = '400 44px Arial';
+        ctx.fillText('МОСН', x, 444);
+        ctx.font = '400 35px Arial';
+        ctx.fillText('№ Пропуска', x, 552);
+        ctx.font = '400 39px Arial';
+        ctx.fillText(e.passNumber || '', x, 617);
     }
     else {
-        ctx.fillStyle = '#a71930';
-        ctx.font = '800 48px Arial';
-        ctx.fillText('МОСН', 456, 350);
+        ctx.font = '400 35px Arial';
+        ctx.fillText('Таб. №', x, 431);
+        ctx.fillText(e.employeeNumber || '', 620, 431);
+        ctx.fillText('№ Пропуска', x, 530);
+        ctx.font = '400 39px Arial';
+        ctx.fillText(e.passNumber || '', x, 599);
     }
-    ctx.fillStyle = '#111';
-    ctx.font = '700 22px Arial';
-    ctx.fillText('ММЦ ФГБУЗ ЮОМЦ ФМБА России', 624, 430);
     return canvas.toDataURL('image/png');
 }
