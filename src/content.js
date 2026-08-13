@@ -15,9 +15,11 @@
     pin: ["\u041F\u0438\u043D \u043A\u043E\u0434", "\u041F\u0438\u043D-\u043A\u043E\u0434"],
     vehicleNumber: ["\u041D\u043E\u043C\u0435\u0440 \u0430\u0432\u0442\u043E\u043C\u043E\u0431\u0438\u043B\u044F"]
   };
-  var EMPLOYEE_ROOTS = ["employee-view", '[data-view="employee"]', ".employee-view"];
-  var PHOTO_SELECTORS = ["employee-view img[src]", ".employee-photo img[src]", 'img[alt*="\u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A" i]', 'img[alt*="\u0444\u043E\u0442\u043E" i]', "employee-view canvas"];
-  var ACTION_SELECTORS = ['employee-view button[title*="\u0441\u043E\u0445\u0440\u0430\u043D" i]', 'employee-view button[aria-label*="\u0441\u043E\u0445\u0440\u0430\u043D" i]', "employee-view button:has(.fa-save)", "employee-view button:has(.fa-floppy-o)", "employee-view button:has(.glyphicon-floppy-disk)", "employee-view button:has(.glyphicon-floppy-save)", 'employee-view button:has([class*="save"])', 'employee-view button[type="submit"]', "employee-view .panel-heading", ".employee-view .panel-heading"];
+  var EMPLOYEE_ROOTS = ["employee_view", "employee-view", '[data-view="employee"]', ".employee-view"];
+  var PHOTO_SELECTORS = ["employee_view img[src]", "employee-view img[src]", ".employee-photo img[src]", 'img[alt*="\u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A" i]', 'img[alt*="\u0444\u043E\u0442\u043E" i]', "employee_view canvas", "employee-view canvas"];
+  var VIEW_ROOTS = ["employee_view", "employee-view", ".employee-view"];
+  var ACTIONS = ['button[title*="\u0441\u043E\u0445\u0440\u0430\u043D" i]', 'button[aria-label*="\u0441\u043E\u0445\u0440\u0430\u043D" i]', "button:has(.fa-save)", "button:has(.fa-floppy-o)", "button:has(.glyphicon-floppy-disk)", "button:has(.glyphicon-floppy-save)", 'button:has([class*="save"])', 'button[type="submit"]'];
+  var ACTION_SELECTORS = VIEW_ROOTS.flatMap((root) => ACTIONS.map((action) => `${root} ${action}`));
 
   // extension-ts/adapter.ts
   var clean = (v) => v.replace(/\s+/g, " ").trim();
@@ -79,11 +81,19 @@
         const e = r.querySelector(s);
         if (e) return e;
       }
-      for (const r of allRoots()) for (const button of Array.from(r.querySelectorAll("employee-view button, .employee-view button"))) {
-        const clues = [button.textContent, button.getAttribute("title"), button.getAttribute("aria-label"), button.className, button.innerHTML].join(" ").toLowerCase();
-        if (/сохран|save|floppy/.test(clues)) return button;
+      for (const r of allRoots()) {
+        const buttons2 = Array.from(r.querySelectorAll("employee_view button,employee-view button,.employee-view button"));
+        for (const button of buttons2) {
+          const clues = [button.textContent, button.getAttribute("title"), button.getAttribute("aria-label"), button.className, button.innerHTML].join(" ").toLowerCase();
+          if (/сохран|save|floppy|disk/.test(clues)) return button;
+        }
+        for (const button of buttons2) {
+          const next = button.nextElementSibling;
+          const nextClues = [next?.className, next?.innerHTML, next?.getAttribute("title")].join(" ").toLowerCase();
+          if (next && /trash|delete|удал|корзин/.test(nextClues)) return button;
+        }
       }
-      return null;
+      return document.querySelector("employee_view .panel-heading,employee-view .panel-heading,.employee-view .panel-heading,employee_view header,employee-view header");
     }
     async getPhoto() {
       for (const r of allRoots()) for (const s of PHOTO_SELECTORS) {
@@ -122,7 +132,10 @@
     const settings = { ...DEFAULT_SETTINGS, ...await chrome.storage.local.get(DEFAULT_SETTINGS) };
     if (location.origin !== new URL(settings.allowedOrigin).origin) return;
     const anchor = adapter.getActionAnchor();
-    if (!anchor) return;
+    if (!anchor) {
+      if (settings.debug) console.warn("[RUBEZH Pass Printer] \u041A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 \u043D\u0430\u0439\u0434\u0435\u043D\u0430, \u043D\u043E \u043A\u043D\u043E\u043F\u043A\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430.");
+      return;
+    }
     const group = document.createElement("span");
     group.id = ID;
     group.setAttribute("role", "group");
@@ -141,7 +154,9 @@
       });
       group.append(button);
     }
-    anchor.insertAdjacentElement("afterend", group);
+    if (anchor.matches("button")) anchor.insertAdjacentElement("afterend", group);
+    else anchor.append(group);
+    if (settings.debug) console.info("[RUBEZH Pass Printer] \u041A\u043D\u043E\u043F\u043A\u0438 \u043F\u0435\u0447\u0430\u0442\u0438 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B.", { root: document.querySelector("employee_view,employee-view"), anchor });
   }
   var scheduled = false;
   var schedule = () => {

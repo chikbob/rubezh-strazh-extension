@@ -57,12 +57,20 @@ export class RubezhAdapter {
             const e = r.querySelector(s);
             if (e)
                 return e;
-        } for (const r of allRoots())
-        for (const button of Array.from(r.querySelectorAll('employee-view button, .employee-view button'))) {
+        } for (const r of allRoots()) {
+        const buttons = Array.from(r.querySelectorAll('employee_view button,employee-view button,.employee-view button'));
+        for (const button of buttons) {
             const clues = [button.textContent, button.getAttribute('title'), button.getAttribute('aria-label'), button.className, button.innerHTML].join(' ').toLowerCase();
-            if (/сохран|save|floppy/.test(clues))
+            if (/сохран|save|floppy|disk/.test(clues))
                 return button;
-        } return null; }
+        }
+        for (const button of buttons) {
+            const next = button.nextElementSibling;
+            const nextClues = [next?.className, next?.innerHTML, next?.getAttribute('title')].join(' ').toLowerCase();
+            if (next && /trash|delete|удал|корзин/.test(nextClues))
+                return button;
+        }
+    } return document.querySelector('employee_view .panel-heading,employee-view .panel-heading,.employee-view .panel-heading,employee_view header,employee-view header'); }
     async getPhoto() { for (const r of allRoots())
         for (const s of PHOTO_SELECTORS) {
             const e = r.querySelector(s);
