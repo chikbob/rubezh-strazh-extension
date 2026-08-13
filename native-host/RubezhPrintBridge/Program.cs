@@ -1,4 +1,4 @@
-using System.Drawing;using System.Drawing.Printing;using System.Text;using System.Text.Json;
+using System;using System.IO;using System.Linq;using System.Drawing;using System.Drawing.Printing;using System.Text;using System.Text.Json;
 record Request(string command,PrintJob? job);record PrintJob(string printer,int copies,string imageDataUrl,int dpi);record Reply(bool ok,string? message=null,object? printers=null,object? details=null);
 static class App{
  static readonly JsonSerializerOptions Json=new(){PropertyNameCaseInsensitive=true};
