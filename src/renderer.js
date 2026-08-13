@@ -11,20 +11,20 @@ function text(ctx, value, x, y, maxWidth, size, weight = 400) { let px = size; w
 } ctx.fillText(value, x, y); }
 async function base() { const canvas = document.createElement('canvas'); canvas.width = CARD.widthPx; canvas.height = CARD.heightPx; const ctx = canvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 1012, 638); const background = await load(asset('medical-background.jpg')); ctx.drawImage(background, 0, 64, 440, 574); ctx.fillStyle = '#111'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left'; ctx.font = '400 43px Arial'; ctx.textAlign = 'center'; ctx.fillText(ORGANIZATION, 506, 50); ctx.textAlign = 'left'; return { canvas, ctx }; }
 function photoFrame(ctx, photo) { ctx.fillStyle = '#eee'; ctx.fillRect(33, 96, 375, 505); cover(ctx, photo, 33, 96, 375, 505); }
-function emblem(ctx, image, x, y, w, h) { ctx.drawImage(image, x, y, w, h); }
+function contain(ctx, image, x, y, w, h) { const scale = Math.min(w / image.naturalWidth, h / image.naturalHeight), dw = image.naturalWidth * scale, dh = image.naturalHeight * scale; ctx.drawImage(image, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh); }
 export async function renderCard(type, e) {
     const { canvas, ctx } = await base();
     if (type === 'temporary') {
         const color = await load(asset('emblem-color.png'));
-        emblem(ctx, color, 32, 96, 375, 505);
-        ctx.font = '400 58px Arial';
+        contain(ctx, color, 32, 96, 375, 505);
+        ctx.font = '400 72px Arial';
         ctx.fillText('ВРЕМЕННЫЙ', 466, 216);
-        ctx.font = '400 76px Arial';
+        ctx.font = '400 104px Arial';
         ctx.fillText('ПРОПУСК', 466, 392);
         ctx.font = '400 37px Arial';
         ctx.fillText('№ Пропуска', 466, 548);
         ctx.font = '400 39px Arial';
-        ctx.fillText(e.passNumber || e.employeeNumber || '', 466, 611);
+        ctx.fillText(e.passNumber || '', 466, 611);
         ctx.font = '700 39px Arial';
         ctx.fillText('МО', 914, 609);
         return canvas.toDataURL('image/png');
@@ -36,7 +36,7 @@ export async function renderCard(type, e) {
         catch { }
     }
     const black = await load(asset('emblem-black.png'));
-    emblem(ctx, black, 800, 425, 205, 205);
+    contain(ctx, black, 800, 410, 205, 228);
     const x = 456, w = 540;
     ctx.fillStyle = '#111';
     text(ctx, e.surname, x, 123, w, 39);
@@ -55,8 +55,10 @@ export async function renderCard(type, e) {
     }
     else {
         ctx.font = '400 35px Arial';
-        ctx.fillText('Таб. №', x, 431);
-        ctx.fillText(e.employeeNumber || '', 620, 431);
+        const tabLabel = 'Таб. №';
+        ctx.fillText(tabLabel, x, 431);
+        const tabX = x + ctx.measureText(tabLabel).width + 12;
+        ctx.fillText(e.employeeNumber || '', tabX, 431);
         ctx.fillText('№ Пропуска', x, 530);
         ctx.font = '400 39px Arial';
         ctx.fillText(e.passNumber || '', x, 599);

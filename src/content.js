@@ -115,8 +115,19 @@
     async getEmployeeData() {
       const value = (k) => clean(findByLabel(FIELD_LABELS[k])?.value || "");
       const surname = value("surname"), name = value("name"), patronymic = value("patronymic");
-      const body = clean(document.body.innerText);
-      const passNumber = body.match(/\b(\d{7,10})\s*-\s*уровень\b/i)?.[1];
+      let passNumber;
+      for (const root of allRoots()) for (const node of Array.from(root.querySelectorAll("a,span,div,td"))) {
+        if (node.children.length > 2) continue;
+        const match = clean(node.textContent || "").match(/(?:^|\D)(\d{6,12})\s*[-–—−]?\s*уровень\s*\d*/iu);
+        if (match) {
+          passNumber = match[1];
+          break;
+        }
+      }
+      if (!passNumber) {
+        const body = clean(document.body.innerText);
+        passNumber = body.match(/(?:^|\D)(\d{6,12})\s*[-–—−]?\s*уровень\s*\d*/iu)?.[1];
+      }
       return { surname, name, patronymic, fullName: clean([surname, name, patronymic].filter(Boolean).join(" ")), employeeNumber: value("employeeNumber"), passNumber, position: value("position"), department: value("department"), comment: value("comment"), accessProfile: value("accessProfile"), personalEntryPoint: value("personalEntryPoint"), loginUser: value("loginUser"), pin: value("pin"), vehicleNumber: value("vehicleNumber"), photo: await this.getPhoto() || void 0 };
     }
   };
