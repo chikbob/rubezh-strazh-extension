@@ -3,18 +3,13 @@ const adapter=new RubezhAdapter(),MARK='data-rubezh-pass-button';
 const passes:[PassType,string,string][]=[['employee','С','Печать пропуска сотрудника'],['mosn','М','Печать пропуска МОСН'],['temporary','В','Печать временного пропуска']];
 
 function roots():ParentNode[]{const result:ParentNode[]=[document];for(const element of Array.from(document.querySelectorAll('*')))if(element.shadowRoot)result.push(element.shadowRoot);return result}
-function clues(element:Element|null){return element?[element.getAttribute('title'),element.getAttribute('aria-label'),element.getAttribute('class'),element.innerHTML,element.textContent].filter(Boolean).join(' ').toLowerCase():''}
-function isDelete(button:Element|null){return !!button&&/trash|delete|remove|удал|корзин|fa-trash|glyphicon-trash/.test(clues(button))}
-function isSave(button:Element|null){return !!button&&/save|сохран|floppy|disk|fa-save|fa-floppy|glyphicon-floppy/.test(clues(button))}
-function buttonsIn(root:ParentNode){return Array.from(root.querySelectorAll('button,input[type="button"],input[type="submit"]')) as HTMLElement[]}
-
 function findSaveButton():HTMLElement|null{
- const exact=document.querySelector<HTMLElement>('button#save_employee_btn');if(exact)return exact;
- for(const root of roots())for(const button of buttonsIn(root))if(isSave(button))return button;
- for(const root of roots())for(const deleteButton of buttonsIn(root).filter(isDelete)){
-  const previous=deleteButton.previousElementSibling;
-  if(previous instanceof HTMLElement&&previous.matches('button,input[type="button"],input[type="submit"]'))return previous;
-  const siblings=Array.from(deleteButton.parentElement?.children||[]);const index=siblings.indexOf(deleteButton);const candidate=siblings[index-1];if(candidate instanceof HTMLElement&&candidate.matches('button,input[type="button"],input[type="submit"]'))return candidate;
+ // RUBEZH uses this stable id only for the employee-card Save action.
+ // Heuristics based on a neighbouring Delete button are unsafe: the same
+ // action pattern occurs in tables, identifier lists and biometric controls.
+ for(const root of roots()){
+  const exact=root.querySelector<HTMLElement>('button#save_employee_btn');
+  if(exact)return exact;
  }
  return null;
 }
