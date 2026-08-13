@@ -9,6 +9,7 @@ function isSave(button:Element|null){return !!button&&/save|сохран|floppy|
 function buttonsIn(root:ParentNode){return Array.from(root.querySelectorAll('button,input[type="button"],input[type="submit"]')) as HTMLElement[]}
 
 function findSaveButton():HTMLElement|null{
+ const exact=document.querySelector<HTMLElement>('button#save_employee_btn');if(exact)return exact;
  for(const root of roots())for(const button of buttonsIn(root))if(isSave(button))return button;
  for(const root of roots())for(const deleteButton of buttonsIn(root).filter(isDelete)){
   const previous=deleteButton.previousElementSibling;
