@@ -4,11 +4,11 @@ const passes:[PassType,string,string][]=[['employee','С','Печать проп
 
 function roots():ParentNode[]{const result:ParentNode[]=[document];for(const element of Array.from(document.querySelectorAll('*')))if(element.shadowRoot)result.push(element.shadowRoot);return result}
 function findSaveButton():HTMLElement|null{
- // RUBEZH uses this stable id only for the employee-card Save action.
+ // RUBEZH uses stable ids only for the employee/visitor card Save actions.
  // Heuristics based on a neighbouring Delete button are unsafe: the same
  // action pattern occurs in tables, identifier lists and biometric controls.
  for(const root of roots()){
-  const exact=root.querySelector<HTMLElement>('button#save_employee_btn');
+  const exact=root.querySelector<HTMLElement>('button#save_employee_btn,button#save_visitor_btn');
   if(exact)return exact;
  }
  return null;

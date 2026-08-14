@@ -143,7 +143,7 @@
   }
   function findSaveButton() {
     for (const root of roots()) {
-      const exact = root.querySelector("button#save_employee_btn");
+      const exact = root.querySelector("button#save_employee_btn,button#save_visitor_btn");
       if (exact) return exact;
     }
     return null;
