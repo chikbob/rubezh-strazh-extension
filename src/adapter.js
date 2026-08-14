@@ -2,6 +2,7 @@ import { ACTION_SELECTORS, EMPLOYEE_ROOTS, FIELD_LABELS, PHOTO_SELECTORS } from 
 const clean = (v) => v.replace(/\s+/g, ' ').trim();
 function allRoots() { const roots = [document]; document.querySelectorAll('*').forEach(e => { if (e.shadowRoot)
     roots.push(e.shadowRoot); }); return roots; }
+function isVisitorPage() { return allRoots().some(root => Array.from(root.querySelectorAll('h1,h2,h3,h4,h5,h6')).some(title => clean(title.textContent || '').toLowerCase() === 'личные данные посетителя')); }
 function findByLabel(labels) {
     for (const root of allRoots())
         for (const label of Array.from(root.querySelectorAll('label'))) {
@@ -88,7 +89,7 @@ export class RubezhAdapter {
                     return p;
             }
         } return null; }
-    async getEmployeeData() { const value = (k) => clean(findByLabel(FIELD_LABELS[k])?.value || ''); const surname = value('surname'), name = value('name'), patronymic = value('patronymic'); let passNumber; for (const root of allRoots())
+    async getEmployeeData() { const value = (k) => clean(findByLabel(FIELD_LABELS[k])?.value || ''); const surname = value('surname'), name = value('name'), patronymic = value('patronymic'), comment = value('comment'), position = value('position') || (isVisitorPage() ? comment : ''); let passNumber; for (const root of allRoots())
         for (const node of Array.from(root.querySelectorAll('a,span,div,td'))) {
             if (node.children.length > 2)
                 continue;
@@ -100,5 +101,5 @@ export class RubezhAdapter {
         } if (!passNumber) {
         const body = clean(document.body.innerText);
         passNumber = body.match(/(?:^|\D)(\d{6,12})\s*[-–—−]?\s*уровень\s*\d*/iu)?.[1];
-    } return { surname, name, patronymic, fullName: clean([surname, name, patronymic].filter(Boolean).join(' ')), employeeNumber: value('employeeNumber'), passNumber, position: value('position'), department: value('department'), comment: value('comment'), accessProfile: value('accessProfile'), personalEntryPoint: value('personalEntryPoint'), loginUser: value('loginUser'), pin: value('pin'), vehicleNumber: value('vehicleNumber'), photo: await this.getPhoto() || undefined }; }
+    } return { surname, name, patronymic, fullName: clean([surname, name, patronymic].filter(Boolean).join(' ')), employeeNumber: value('employeeNumber'), passNumber, position, department: value('department'), comment, accessProfile: value('accessProfile'), personalEntryPoint: value('personalEntryPoint'), loginUser: value('loginUser'), pin: value('pin'), vehicleNumber: value('vehicleNumber'), photo: await this.getPhoto() || undefined }; }
 }

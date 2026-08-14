@@ -30,6 +30,9 @@
     });
     return roots2;
   }
+  function isVisitorPage() {
+    return allRoots().some((root) => Array.from(root.querySelectorAll("h1,h2,h3,h4,h5,h6")).some((title) => clean(title.textContent || "").toLowerCase() === "\u043B\u0438\u0447\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 \u043F\u043E\u0441\u0435\u0442\u0438\u0442\u0435\u043B\u044F"));
+  }
   function findByLabel(labels) {
     for (const root of allRoots()) for (const label of Array.from(root.querySelectorAll("label"))) {
       const text = clean(label.textContent || "").replace(/\s*\*$/, "");
@@ -114,7 +117,7 @@
     }
     async getEmployeeData() {
       const value = (k) => clean(findByLabel(FIELD_LABELS[k])?.value || "");
-      const surname = value("surname"), name = value("name"), patronymic = value("patronymic");
+      const surname = value("surname"), name = value("name"), patronymic = value("patronymic"), comment = value("comment"), position = value("position") || (isVisitorPage() ? comment : "");
       let passNumber;
       for (const root of allRoots()) for (const node of Array.from(root.querySelectorAll("a,span,div,td"))) {
         if (node.children.length > 2) continue;
@@ -128,7 +131,7 @@
         const body = clean(document.body.innerText);
         passNumber = body.match(/(?:^|\D)(\d{6,12})\s*[-–—−]?\s*уровень\s*\d*/iu)?.[1];
       }
-      return { surname, name, patronymic, fullName: clean([surname, name, patronymic].filter(Boolean).join(" ")), employeeNumber: value("employeeNumber"), passNumber, position: value("position"), department: value("department"), comment: value("comment"), accessProfile: value("accessProfile"), personalEntryPoint: value("personalEntryPoint"), loginUser: value("loginUser"), pin: value("pin"), vehicleNumber: value("vehicleNumber"), photo: await this.getPhoto() || void 0 };
+      return { surname, name, patronymic, fullName: clean([surname, name, patronymic].filter(Boolean).join(" ")), employeeNumber: value("employeeNumber"), passNumber, position, department: value("department"), comment, accessProfile: value("accessProfile"), personalEntryPoint: value("personalEntryPoint"), loginUser: value("loginUser"), pin: value("pin"), vehicleNumber: value("vehicleNumber"), photo: await this.getPhoto() || void 0 };
     }
   };
 
