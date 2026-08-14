@@ -141,10 +141,22 @@
     for (const element of Array.from(document.querySelectorAll("*"))) if (element.shadowRoot) result.push(element.shadowRoot);
     return result;
   }
+  function isPersonalDataTitle(element) {
+    return /^личные данные (?:сотрудника|посетителя)$/iu.test((element.textContent || "").replace(/\s+/g, " ").trim());
+  }
+  function saveButtonInHeader(header) {
+    return Array.from(header.querySelectorAll("button")).find((button) => /сохран|save|floppy|disk|fa-save|fa-floppy|glyphicon-floppy/iu.test([button.id, button.title, button.getAttribute("aria-label"), button.className, button.innerHTML].filter(Boolean).join(" "))) || null;
+  }
   function findSaveButton() {
     for (const root of roots()) {
       const exact = root.querySelector("button#save_employee_btn,button#save_visitor_btn");
       if (exact) return exact;
+      for (const title of Array.from(root.querySelectorAll("h1,h2,h3,h4,h5,h6"))) {
+        if (!isPersonalDataTitle(title)) continue;
+        const header = title.closest(".card-header,.panel-heading,header") || title.parentElement;
+        const contextual = header && saveButtonInHeader(header);
+        if (contextual) return contextual;
+      }
     }
     return null;
   }

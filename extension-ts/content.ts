@@ -3,6 +3,8 @@ const adapter=new RubezhAdapter(),MARK='data-rubezh-pass-button';
 const passes:[PassType,string,string][]=[['employee','С','Печать пропуска сотрудника'],['mosn','М','Печать пропуска МОСН'],['temporary','В','Печать временного пропуска']];
 
 function roots():ParentNode[]{const result:ParentNode[]=[document];for(const element of Array.from(document.querySelectorAll('*')))if(element.shadowRoot)result.push(element.shadowRoot);return result}
+function isPersonalDataTitle(element:Element){return /^личные данные (?:сотрудника|посетителя)$/iu.test((element.textContent||'').replace(/\s+/g,' ').trim())}
+function saveButtonInHeader(header:Element){return Array.from(header.querySelectorAll<HTMLElement>('button')).find(button=>/сохран|save|floppy|disk|fa-save|fa-floppy|glyphicon-floppy/iu.test([button.id,button.title,button.getAttribute('aria-label'),button.className,button.innerHTML].filter(Boolean).join(' ')))||null}
 function findSaveButton():HTMLElement|null{
  // RUBEZH uses stable ids only for the employee/visitor card Save actions.
  // Heuristics based on a neighbouring Delete button are unsafe: the same
@@ -10,6 +12,12 @@ function findSaveButton():HTMLElement|null{
  for(const root of roots()){
   const exact=root.querySelector<HTMLElement>('button#save_employee_btn,button#save_visitor_btn');
   if(exact)return exact;
+  for(const title of Array.from(root.querySelectorAll('h1,h2,h3,h4,h5,h6'))){
+   if(!isPersonalDataTitle(title))continue;
+   const header=title.closest('.card-header,.panel-heading,header')||title.parentElement;
+   const contextual=header&&saveButtonInHeader(header);
+   if(contextual)return contextual;
+  }
  }
  return null;
 }

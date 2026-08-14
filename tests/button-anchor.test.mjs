@@ -6,6 +6,8 @@ const source=await readFile(new URL('../extension-ts/content.ts',import.meta.url
 
 test('print buttons are anchored to employee and visitor Save buttons',()=>{
  assert.match(source,/button#save_employee_btn,button#save_visitor_btn/);
+ assert.match(source,/личные данные \(\?:сотрудника\|посетителя\)/);
+ assert.match(source,/saveButtonInHeader/);
 });
 
 test('print buttons do not use generic action or Delete-neighbour fallbacks',()=>{
