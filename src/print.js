@@ -19,6 +19,7 @@ async function main() { const stored = await chrome.storage.session.get('printPa
     window.setTimeout(() => window.close(), 900);
 }
 catch (error) {
-    status.textContent = `Прямая печать недоступна: ${String(error)} Установите Print Bridge из папки bridge.`;
+    const message = String(error);
+    status.textContent = message.includes('Failed to fetch') ? `Print Bridge не отвечает. Повторно запустите bridge\\install.cmd. (${message})` : `Ошибка IDP SMART: ${message}`;
 } }
 void main();

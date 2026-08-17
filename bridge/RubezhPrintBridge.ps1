@@ -18,6 +18,9 @@ public static class SmartSdk {
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartCommEx_OpenDevice2")]
     public static extern uint OpenDevice(ref IntPtr handle, IntPtr device, int deviceType);
 
+    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartCommEx_GetDeviceList2")]
+    private static extern uint GetDeviceList(IntPtr devices, int option);
+
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_DrawImage")]
     public static extern uint DrawImage(IntPtr handle, byte page, byte panel, int x, int y, int width, int height, IntPtr imagePath, IntPtr area);
 
@@ -26,6 +29,25 @@ public static class SmartSdk {
 
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_CloseDevice")]
     public static extern uint CloseDevice(IntPtr handle);
+
+    public static string GetFirstDeviceDescription() {
+        const int maxDevices = 32;
+        const int itemSize = 1028;
+        IntPtr buffer = Marshal.AllocHGlobal(4 + maxDevices * itemSize);
+        try {
+            for (int offset = 0; offset < 4 + maxDevices * itemSize; offset += 4) Marshal.WriteInt32(buffer, offset, 0);
+            uint result = GetDeviceList(buffer, 3);
+            if (result != 0) throw new InvalidOperationException("SmartComm device scan failed (code " + result + ").");
+            int count = Marshal.ReadInt32(buffer);
+            if (count < 1) throw new InvalidOperationException("SmartComm did not find a connected IDP SMART device.");
+            IntPtr firstItem = IntPtr.Add(buffer, 4);
+            string description = Marshal.PtrToStringUni(IntPtr.Add(firstItem, 512), 256).TrimEnd('\0');
+            if (String.IsNullOrWhiteSpace(description)) description = Marshal.PtrToStringUni(firstItem, 128).TrimEnd('\0');
+            return description;
+        } finally {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
 }
 '@
 
@@ -38,11 +60,7 @@ function Get-SmartPrinter {
         $value = (Get-Content $configured -Raw).Trim()
         if ($value) { return $value }
     }
-    $printer = Get-CimInstance Win32_Printer | Where-Object {
-        $_.Name -match 'IDP|SMART[ -]?51|SMART[ -]?31|SMART[ -]?21'
-    } | Select-Object -First 1
-    if (-not $printer) { throw 'IDP SMART printer was not found in Windows.' }
-    return [string]$printer.Name
+    return [SmartSdk]::GetFirstDeviceDescription()
 }
 
 function Invoke-CardPrint([string]$dataUrl) {

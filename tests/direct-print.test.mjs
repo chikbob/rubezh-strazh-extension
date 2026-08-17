@@ -12,6 +12,8 @@ test('print page sends the rendered PNG to the local SmartComm bridge',()=>{
 
 test('Windows bridge uses the color panel and starts SmartComm printing',()=>{
   const source=fs.readFileSync(new URL('../bridge/RubezhPrintBridge.ps1',import.meta.url),'utf8');
+  assert.match(source,/SmartCommEx_GetDeviceList2/);
+  assert.match(source,/GetFirstDeviceDescription/);
   assert.match(source,/DrawImage\(\$handle, 0, 1,/);
   assert.match(source,/\[SmartSdk\]::Print\(\$handle\)/);
 });

@@ -3,6 +3,10 @@ $installDir = Join-Path $env:LOCALAPPDATA 'RubezhPrintBridge'
 $startupDir = [Environment]::GetFolderPath('Startup')
 $shortcutPath = Join-Path $startupDir 'Rubezh Print Bridge.lnk'
 
+# Stop the old bridge before replacing SmartComm2.dll, because Windows locks a loaded DLL.
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*RubezhPrintBridge.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Start-Sleep -Milliseconds 500
+
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 Copy-Item (Join-Path $PSScriptRoot 'RubezhPrintBridge.ps1') $installDir -Force
 
@@ -31,7 +35,6 @@ $shortcut.WorkingDirectory = $installDir
 $shortcut.WindowStyle = 7
 $shortcut.Save()
 
-Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*RubezhPrintBridge.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 $bridgeProcess = Start-Process -FilePath $powerShell32 -ArgumentList $arguments -WorkingDirectory $installDir -WindowStyle Hidden -PassThru
 $ready = $false
 for ($attempt = 0; $attempt -lt 20; $attempt++) {
