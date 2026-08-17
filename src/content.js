@@ -33,6 +33,15 @@
   function isVisitorPage() {
     return allRoots().some((root) => Array.from(root.querySelectorAll("h1,h2,h3,h4,h5,h6")).some((title) => clean(title.textContent || "").toLowerCase() === "\u043B\u0438\u0447\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 \u043F\u043E\u0441\u0435\u0442\u0438\u0442\u0435\u043B\u044F"));
   }
+  function visitorComment() {
+    for (const root of allRoots()) {
+      const textareas = Array.from(root.querySelectorAll("textarea"));
+      const labelled = textareas.find((area2) => /комментарий/iu.test(area2.closest(".input-group,.form-group,.row")?.textContent || ""));
+      const area = labelled || (textareas.length === 1 ? textareas[0] : null);
+      if (area && clean(area.value)) return clean(area.value);
+    }
+    return "";
+  }
   function findByLabel(labels) {
     for (const root of allRoots()) for (const label of Array.from(root.querySelectorAll("label"))) {
       const text = clean(label.textContent || "").replace(/\s*\*$/, "");
@@ -117,7 +126,7 @@
     }
     async getEmployeeData() {
       const value = (k) => clean(findByLabel(FIELD_LABELS[k])?.value || "");
-      const surname = value("surname"), name = value("name"), patronymic = value("patronymic"), comment = value("comment"), position = value("position") || (isVisitorPage() ? comment : "");
+      const surname = value("surname"), name = value("name"), patronymic = value("patronymic"), visitor = isVisitorPage(), comment = visitor ? visitorComment() || value("comment") : value("comment"), position = value("position") || (visitor ? comment : "");
       let passNumber;
       for (const root of allRoots()) for (const node of Array.from(root.querySelectorAll("a,span,div,td"))) {
         if (node.children.length > 2) continue;

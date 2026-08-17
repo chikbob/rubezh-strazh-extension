@@ -12,7 +12,8 @@ test('print buttons are anchored to employee and visitor Save buttons',()=>{
 });
 
 test('visitor position falls back to the Comment field',()=>{
- assert.match(adapter,/position=value\('position'\)\|\|\(isVisitorPage\(\)\?comment:''\)/);
+ assert.match(adapter,/comment=visitor\?\(visitorComment\(\)\|\|value\('comment'\)\):value\('comment'\)/);
+ assert.match(adapter,/position=value\('position'\)\|\|\(visitor\?comment:''\)/);
 });
 
 test('print buttons do not use generic action or Delete-neighbour fallbacks',()=>{

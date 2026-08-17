@@ -12,7 +12,7 @@ export async function renderCard(type:PassType,e:EmployeeData){const{canvas,ctx}
  if(type==='temporary'){
   const color=await load(asset('emblem-color.png'));contain(ctx,color,32,96,375,505);ctx.font='400 72px Arial';ctx.fillText('ВРЕМЕННЫЙ',466,216);ctx.font='400 104px Arial';ctx.fillText('ПРОПУСК',466,392);ctx.font='400 37px Arial';ctx.fillText('№ Пропуска',466,548);ctx.font='400 39px Arial';ctx.fillText(e.passNumber||'',466,611);ctx.font='700 39px Arial';ctx.fillText('МО',914,609);return canvas.toDataURL('image/png')
  }
- if(e.photo?.dataUrl){try{photoFrame(ctx,await load(e.photo.dataUrl))}catch{}}const black=await load(asset('emblem-black.png'));contain(ctx,black,800,410,205,228);
+ if(e.photo?.dataUrl){try{photoFrame(ctx,await load(e.photo.dataUrl))}catch{}}const black=await load(asset('emblem-black-v2.png'));contain(ctx,black,800,410,205,228);
  const x=456,w=540;ctx.fillStyle='#111';text(ctx,e.surname,x,123,w,39);text(ctx,e.name,x,193,w,39);text(ctx,e.patronymic||'',x,263,w,39);
  const fit=normalizePosition(ctx,e.position||'',{fontFamily:'Arial',fontSize:32,minScale:.85,maxWidth:w,maxLines:2,lineHeight:36},true);ctx.font=`400 ${fit.fontSize}px Arial`;fit.lines.forEach((line,index)=>ctx.fillText(line,x,333+index*36));
  if(type==='mosn'){ctx.font='400 44px Arial';ctx.fillText('МОСН',x,444);ctx.font='400 35px Arial';ctx.fillText('№ Пропуска',x,552);ctx.font='400 39px Arial';ctx.fillText(e.passNumber||'',x,617)}else{ctx.font='400 35px Arial';const tabLabel='Таб. №';ctx.fillText(tabLabel,x,431);const tabX=x+ctx.measureText(tabLabel).width+12;ctx.fillText(e.employeeNumber||'',tabX,431);ctx.fillText('№ Пропуска',x,530);ctx.font='400 39px Arial';ctx.fillText(e.passNumber||'',x,599)}

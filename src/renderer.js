@@ -35,7 +35,7 @@ export async function renderCard(type, e) {
         }
         catch { }
     }
-    const black = await load(asset('emblem-black.png'));
+    const black = await load(asset('emblem-black-v2.png'));
     contain(ctx, black, 800, 410, 205, 228);
     const x = 456, w = 540;
     ctx.fillStyle = '#111';
