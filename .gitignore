@@ -3,4 +3,5 @@
 node_modules/
 native-host/publish/
 artifacts/
+tmp/
 start/

@@ -25,10 +25,16 @@ jobs:
           npm ci
           npm run typecheck
           npm run build
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path bridge/RubezhPrintBridge.ps1), [ref]$null, [ref]$errors) | Out-Null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path bridge/install.ps1), [ref]$null, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { throw ($errors | Out-String) }
           New-Item -ItemType Directory -Force artifacts/rubezh-strazh-extension-unpacked | Out-Null
           Copy-Item manifest.json artifacts/rubezh-strazh-extension-unpacked/
           Copy-Item src artifacts/rubezh-strazh-extension-unpacked/src -Recurse
+          Copy-Item bridge artifacts/rubezh-strazh-extension-unpacked/bridge -Recurse
           Copy-Item INSTALL-RU.txt artifacts/rubezh-strazh-extension-unpacked/
+          Copy-Item README.md artifacts/rubezh-strazh-extension-unpacked/
           Compress-Archive artifacts/rubezh-strazh-extension-unpacked artifacts/rubezh-strazh-extension-unpacked-${{ github.ref_name }}.zip
 
       - name: Publish release assets
