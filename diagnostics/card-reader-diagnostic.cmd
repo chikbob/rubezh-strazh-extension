@@ -8,12 +8,18 @@ if errorlevel 1 (
   exit /b
 )
 
-set "LOGFILE=%USERPROFILE%\Desktop\card-reader-diagnostic.txt"
+set "TARGETDIR=%USERPROFILE%\Desktop"
+set "LOGFILE=%TARGETDIR%\card-reader-diagnostic.txt"
 set "PSFILE=%TEMP%\rubezh-card-reader-diagnostic.ps1"
 
+if not exist "%TARGETDIR%" mkdir "%TARGETDIR%"
+if not exist "%TARGETDIR%" (
+  echo ERROR: Cannot create "%TARGETDIR%".
+  pause
+  exit /b 1
+)
+
 >"%PSFILE%" echo $ErrorActionPreference = 'Continue'
->>"%PSFILE%" echo $log = [Environment]::ExpandEnvironmentVariables('%%USERPROFILE%%\Desktop\card-reader-diagnostic.txt')
->>"%PSFILE%" echo Start-Transcript -Path $log -Force
 >>"%PSFILE%" echo Write-Host 'RUBEZH CARD READER DIAGNOSTIC'
 >>"%PSFILE%" echo Write-Host ('Time: ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
 >>"%PSFILE%" echo Write-Host ('Computer: ' + $env:COMPUTERNAME)
@@ -46,13 +52,18 @@ set "PSFILE=%TEMP%\rubezh-card-reader-diagnostic.ps1"
 >>"%PSFILE%" echo Write-Host "`n=== EVENT LOG: SMART CARD / USB, LAST 3 DAYS ==="
 >>"%PSFILE%" echo Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date).AddDays(-3)} -ErrorAction SilentlyContinue ^| Where-Object { $_.ProviderName -match 'SmartCard^|USB^|Kernel-PnP^|WUDF' -and $_.Message -match 'ACR^|072F^|2224^|smart.card^|reader' } ^| Select-Object -First 80 TimeCreated,Id,LevelDisplayName,ProviderName,Message ^| Format-List
 >>"%PSFILE%" echo Write-Host "`n=== DIAGNOSTIC COMPLETE ==="
->>"%PSFILE%" echo Stop-Transcript
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PSFILE%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PSFILE%" >"%LOGFILE%" 2>&1
+set "RESULT=%ERRORLEVEL%"
 del "%PSFILE%" >nul 2>&1
 
 echo.
-echo Diagnostic complete.
-echo Send this file: "%LOGFILE%"
+if exist "%LOGFILE%" (
+  for %%A in ("%LOGFILE%") do echo Diagnostic log saved: "%%~fA" ^(%%~zA bytes^)
+  echo Send this file to the developer.
+) else (
+  echo ERROR: The log file was not created.
+)
+echo PowerShell exit code: %RESULT%
 echo.
 pause
