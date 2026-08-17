@@ -41,13 +41,13 @@ function Get-SmartPrinter {
     $printer = Get-CimInstance Win32_Printer | Where-Object {
         $_.Name -match 'IDP|SMART[ -]?51|SMART[ -]?31|SMART[ -]?21'
     } | Select-Object -First 1
-    if (-not $printer) { throw 'Принтер IDP SMART не найден в Windows.' }
+    if (-not $printer) { throw 'IDP SMART printer was not found in Windows.' }
     return [string]$printer.Name
 }
 
 function Invoke-CardPrint([string]$dataUrl) {
     if (-not $dataUrl.StartsWith('data:image/png;base64,')) {
-        throw 'Ожидалось изображение PNG.'
+        throw 'The request must contain a PNG image.'
     }
     $tempPath = Join-Path ([IO.Path]::GetTempPath()) ('rubezh-pass-' + [guid]::NewGuid().ToString('N') + '.png')
     [IO.File]::WriteAllBytes($tempPath, [Convert]::FromBase64String($dataUrl.Substring($dataUrl.IndexOf(',') + 1)))
@@ -59,17 +59,17 @@ function Invoke-CardPrint([string]$dataUrl) {
         $printer = Get-SmartPrinter
         $devicePtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($printer)
         $result = [SmartSdk]::OpenDevice([ref]$handle, $devicePtr, 1)
-        if ($result -ne 0) { throw "SmartComm: не удалось открыть '$printer' (код $result)." }
+        if ($result -ne 0) { throw "SmartComm could not open '$printer' (code $result)." }
 
         $imagePtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($tempPath)
         $rect = New-Object SmartSdk+RECT
         $rectPtr = [Runtime.InteropServices.Marshal]::AllocHGlobal([Runtime.InteropServices.Marshal]::SizeOf($rect))
         [Runtime.InteropServices.Marshal]::StructureToPtr($rect, $rectPtr, $false)
-        # PAGE_FRONT=0, PANEL_COLOR=1; нулевые размеры означают заполнить карту целиком.
+        # PAGE_FRONT=0, PANEL_COLOR=1; zero dimensions fill the entire card.
         $result = [SmartSdk]::DrawImage($handle, 0, 1, 0, 0, 0, 0, $imagePtr, $rectPtr)
-        if ($result -ne 0) { throw "SmartComm: не удалось подготовить изображение (код $result)." }
+        if ($result -ne 0) { throw "SmartComm could not draw the image (code $result)." }
         $result = [SmartSdk]::Print($handle)
-        if ($result -ne 0) { throw "SmartComm: принтер отклонил задание (код $result)." }
+        if ($result -ne 0) { throw "SmartComm rejected the print job (code $result)." }
         return @{ ok = $true; printer = $printer }
     }
     finally {
@@ -115,7 +115,7 @@ while ($true) {
             $payload = (-join $chars) | ConvertFrom-Json
             Send-Response $stream 200 (Invoke-CardPrint $payload.imageDataUrl | ConvertTo-Json -Compress)
         } else {
-            Send-Response $stream 400 '{"ok":false,"error":"Некорректный запрос."}'
+            Send-Response $stream 400 '{"ok":false,"error":"Invalid request."}'
         }
     } catch {
         try { Send-Response $stream 400 (@{ ok = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress) } catch {}

@@ -15,7 +15,7 @@ $searchRoots = @(
 $dll = Get-ChildItem $searchRoots -Filter SmartComm2.dll -Recurse -ErrorAction SilentlyContinue | Where-Object {
     $_.DirectoryName -match 'IDesigner'
 } | Select-Object -First 1
-if (-not $dll) { throw 'SmartComm2.dll не найден. Сначала установите SMART IDesigner.' }
+if (-not $dll) { throw 'SmartComm2.dll was not found. Install SMART IDesigner first.' }
 Copy-Item $dll.FullName $installDir -Force
 Get-ChildItem $dll.DirectoryName -Filter '*.icm' -ErrorAction SilentlyContinue | Copy-Item -Destination $installDir -Force
 
@@ -32,5 +32,20 @@ $shortcut.WindowStyle = 7
 $shortcut.Save()
 
 Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*RubezhPrintBridge.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-Start-Process -FilePath $powerShell32 -ArgumentList $arguments -WorkingDirectory $installDir -WindowStyle Hidden
-Write-Host 'RUBEZH Print Bridge установлен и запущен.'
+$bridgeProcess = Start-Process -FilePath $powerShell32 -ArgumentList $arguments -WorkingDirectory $installDir -WindowStyle Hidden -PassThru
+$ready = $false
+for ($attempt = 0; $attempt -lt 20; $attempt++) {
+    Start-Sleep -Milliseconds 250
+    if ($bridgeProcess.HasExited) { throw "Print Bridge stopped during startup (exit code $($bridgeProcess.ExitCode))." }
+    $client = New-Object Net.Sockets.TcpClient
+    try {
+        $pending = $client.BeginConnect('127.0.0.1', 18451, $null, $null)
+        if ($pending.AsyncWaitHandle.WaitOne(200)) {
+            $client.EndConnect($pending)
+            $ready = $true
+            break
+        }
+    } catch {} finally { $client.Dispose() }
+}
+if (-not $ready) { throw 'Print Bridge did not open local port 18451.' }
+Write-Host 'RUBEZH Print Bridge installed and started successfully.'
