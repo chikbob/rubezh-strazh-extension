@@ -1,7 +1,5 @@
 $ErrorActionPreference = 'Stop'
 $installDir = Join-Path $env:LOCALAPPDATA 'RubezhPrintBridge'
-$startupDir = [Environment]::GetFolderPath('Startup')
-$shortcutPath = Join-Path $startupDir 'Rubezh Print Bridge.lnk'
 
 # Stop the old bridge before replacing SmartComm2.dll, because Windows locks a loaded DLL.
 Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*RubezhPrintBridge.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
@@ -9,6 +7,9 @@ Start-Sleep -Milliseconds 500
 
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 Copy-Item (Join-Path $PSScriptRoot 'RubezhPrintBridge.ps1') $installDir -Force
+Copy-Item (Join-Path $PSScriptRoot 'autostart.ps1') $installDir -Force
+Copy-Item (Join-Path $PSScriptRoot 'enable-autostart.cmd') $installDir -Force
+Copy-Item (Join-Path $PSScriptRoot 'disable-autostart.cmd') $installDir -Force
 
 $searchRoots = @(
     (Join-Path ${env:ProgramFiles(x86)} 'IDP'),
@@ -27,13 +28,7 @@ $powerShell32 = Join-Path $env:WINDIR 'SysWOW64\WindowsPowerShell\v1.0\powershel
 if (-not (Test-Path $powerShell32)) { $powerShell32 = 'powershell.exe' }
 $scriptPath = Join-Path $installDir 'RubezhPrintBridge.ps1'
 $arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
-$shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $powerShell32
-$shortcut.Arguments = $arguments
-$shortcut.WorkingDirectory = $installDir
-$shortcut.WindowStyle = 7
-$shortcut.Save()
+& (Join-Path $installDir 'autostart.ps1') -Action Enable
 
 $bridgeProcess = Start-Process -FilePath $powerShell32 -ArgumentList $arguments -WorkingDirectory $installDir -WindowStyle Hidden -PassThru
 $ready = $false

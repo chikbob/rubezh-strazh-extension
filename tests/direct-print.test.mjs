@@ -22,8 +22,18 @@ test('Windows bridge uses the color panel and starts SmartComm printing',()=>{
 });
 
 test('Windows PowerShell scripts remain ASCII-compatible',()=>{
-  for(const file of ['../bridge/RubezhPrintBridge.ps1','../bridge/install.ps1']){
+  for(const file of ['../bridge/RubezhPrintBridge.ps1','../bridge/install.ps1','../bridge/autostart.ps1']){
     const source=fs.readFileSync(new URL(file,import.meta.url));
     assert.equal(source.some(byte=>byte>127),false,`${file} contains non-ASCII bytes`);
   }
+});
+
+test('bridge installer enables autostart and ships opt-out controls',()=>{
+  const installer=fs.readFileSync(new URL('../bridge/install.ps1',import.meta.url),'utf8');
+  const manager=fs.readFileSync(new URL('../bridge/autostart.ps1',import.meta.url),'utf8');
+  assert.match(installer,/autostart\.ps1'\) -Action Enable/);
+  assert.match(manager,/Rubezh Print Bridge\.lnk/);
+  assert.match(manager,/Remove-Item \$shortcutPath/);
+  assert.equal(fs.existsSync(new URL('../bridge/enable-autostart.cmd',import.meta.url)),true);
+  assert.equal(fs.existsSync(new URL('../bridge/disable-autostart.cmd',import.meta.url)),true);
 });

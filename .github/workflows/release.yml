@@ -28,6 +28,7 @@ jobs:
           $errors = $null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path bridge/RubezhPrintBridge.ps1), [ref]$null, [ref]$errors) | Out-Null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path bridge/install.ps1), [ref]$null, [ref]$errors) | Out-Null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path bridge/autostart.ps1), [ref]$null, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { throw ($errors | Out-String) }
           New-Item -ItemType Directory -Force artifacts/rubezh-strazh-extension-unpacked | Out-Null
           Copy-Item manifest.json artifacts/rubezh-strazh-extension-unpacked/
