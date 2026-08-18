@@ -63,15 +63,32 @@ function Get-SmartPrinter {
     return [SmartSdk]::GetFirstDeviceDescription()
 }
 
-function Invoke-CardPrint([string]$dataUrl) {
-    if (-not $dataUrl.StartsWith('data:image/png;base64,')) {
-        throw 'The request must contain a PNG image.'
-    }
-    $tempPath = Join-Path ([IO.Path]::GetTempPath()) ('rubezh-pass-' + [guid]::NewGuid().ToString('N') + '.png')
-    [IO.File]::WriteAllBytes($tempPath, [Convert]::FromBase64String($dataUrl.Substring($dataUrl.IndexOf(',') + 1)))
+function Convert-ToOpaqueBitmap([string]$dataUrl, [string]$name) {
+    if (-not $dataUrl.StartsWith('data:image/png;base64,')) { throw 'The request must contain PNG panel images.' }
+    Add-Type -AssemblyName System.Drawing
+    $pngPath = Join-Path ([IO.Path]::GetTempPath()) ($name + '-' + [guid]::NewGuid().ToString('N') + '.png')
+    $bmpPath = [IO.Path]::ChangeExtension($pngPath, '.bmp')
+    [IO.File]::WriteAllBytes($pngPath, [Convert]::FromBase64String($dataUrl.Substring($dataUrl.IndexOf(',') + 1)))
+    $source = [Drawing.Image]::FromFile($pngPath)
+    try {
+        $bitmap = [Drawing.Bitmap]::new($source.Width, $source.Height, [Drawing.Imaging.PixelFormat]::Format24bppRgb)
+        try {
+            $graphics = [Drawing.Graphics]::FromImage($bitmap)
+            try { $graphics.Clear([Drawing.Color]::White); $graphics.DrawImageUnscaled($source, 0, 0) } finally { $graphics.Dispose() }
+            $bitmap.SetResolution(300, 300)
+            $bitmap.Save($bmpPath, [Drawing.Imaging.ImageFormat]::Bmp)
+        } finally { $bitmap.Dispose() }
+    } finally { $source.Dispose(); Remove-Item $pngPath -Force -ErrorAction SilentlyContinue }
+    return $bmpPath
+}
+
+function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
+    $colorPath = Convert-ToOpaqueBitmap $colorDataUrl 'rubezh-color'
+    $blackPath = Convert-ToOpaqueBitmap $blackDataUrl 'rubezh-black'
     $handle = [IntPtr]::Zero
     $devicePtr = [IntPtr]::Zero
-    $imagePtr = [IntPtr]::Zero
+    $colorPtr = [IntPtr]::Zero
+    $blackPtr = [IntPtr]::Zero
     $rectPtr = [IntPtr]::Zero
     try {
         $printer = Get-SmartPrinter
@@ -79,13 +96,16 @@ function Invoke-CardPrint([string]$dataUrl) {
         $result = [SmartSdk]::OpenDevice([ref]$handle, $devicePtr, 1)
         if ($result -ne 0) { throw "SmartComm could not open '$printer' (code $result)." }
 
-        $imagePtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($tempPath)
+        $colorPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($colorPath)
+        $blackPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($blackPath)
         $rect = New-Object SmartSdk+RECT
         $rectPtr = [Runtime.InteropServices.Marshal]::AllocHGlobal([Runtime.InteropServices.Marshal]::SizeOf($rect))
         [Runtime.InteropServices.Marshal]::StructureToPtr($rect, $rectPtr, $false)
         # PAGE_FRONT=0, PANEL_COLOR=1; zero dimensions fill the entire card.
-        $result = [SmartSdk]::DrawImage($handle, 0, 1, 0, 0, 0, 0, $imagePtr, $rectPtr)
-        if ($result -ne 0) { throw "SmartComm could not draw the image (code $result)." }
+        $result = [SmartSdk]::DrawImage($handle, 0, 1, 0, 0, 0, 0, $colorPtr, $rectPtr)
+        if ($result -ne 0) { throw "SmartComm could not draw the color panel (code $result)." }
+        $result = [SmartSdk]::DrawImage($handle, 0, 2, 0, 0, 0, 0, $blackPtr, $rectPtr)
+        if ($result -ne 0) { throw "SmartComm could not draw the black panel (code $result)." }
         $result = [SmartSdk]::Print($handle)
         if ($result -ne 0) { throw "SmartComm rejected the print job (code $result)." }
         return @{ ok = $true; printer = $printer }
@@ -93,9 +113,10 @@ function Invoke-CardPrint([string]$dataUrl) {
     finally {
         if ($handle -ne [IntPtr]::Zero) { [SmartSdk]::CloseDevice($handle) | Out-Null }
         if ($devicePtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($devicePtr) }
-        if ($imagePtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($imagePtr) }
+        if ($colorPtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($colorPtr) }
+        if ($blackPtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($blackPtr) }
         if ($rectPtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($rectPtr) }
-        Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
+        Remove-Item $colorPath,$blackPath -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -131,7 +152,7 @@ while ($true) {
             $read = 0
             while ($read -lt $contentLength) { $read += $reader.Read($chars, $read, $contentLength - $read) }
             $payload = (-join $chars) | ConvertFrom-Json
-            Send-Response $stream 200 (Invoke-CardPrint $payload.imageDataUrl | ConvertTo-Json -Compress)
+            Send-Response $stream 200 (Invoke-CardPrint $payload.colorImageDataUrl $payload.blackImageDataUrl | ConvertTo-Json -Compress)
         } else {
             Send-Response $stream 400 '{"ok":false,"error":"Invalid request."}'
         }

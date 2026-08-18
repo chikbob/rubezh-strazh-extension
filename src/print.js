@@ -1,19 +1,19 @@
-import { renderCard } from './renderer.js';
+import { renderCard, renderCardPanels } from './renderer.js';
 const BRIDGE = 'http://127.0.0.1:18451';
-async function directPrint(imageDataUrl) { const response = await fetch(`${BRIDGE}/print`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageDataUrl }) }); const result = await response.json(); if (!response.ok || !result.ok)
+async function directPrint(colorImageDataUrl, blackImageDataUrl) { const response = await fetch(`${BRIDGE}/print`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ colorImageDataUrl, blackImageDataUrl }) }); const result = await response.json(); if (!response.ok || !result.ok)
     throw new Error(result.error || `Ошибка моста печати (${response.status})`); return result; }
 async function main() { const stored = await chrome.storage.session.get('printPayload'); const payload = stored.printPayload; const status = document.querySelector('#status'); if (!payload) {
     status.textContent = 'Данные пропуска не найдены.';
     return;
 } try {
     status.textContent = 'Формирование пропуска…';
-    const dataUrl = await renderCard(payload.type, payload.employee);
+    const [dataUrl, panels] = await Promise.all([renderCard(payload.type, payload.employee), renderCardPanels(payload.type, payload.employee)]);
     const image = document.querySelector('#card');
     image.src = dataUrl;
     await image.decode();
     document.title = `Пропуск — ${payload.employee.fullName}`;
-    status.textContent = 'Отправка на IDP SMART…';
-    const result = await directPrint(dataUrl);
+    status.textContent = 'Отправка цветной и K-панелей на IDP SMART…';
+    const result = await directPrint(panels.colorImageDataUrl, panels.blackImageDataUrl);
     status.textContent = `Задание отправлено на ${result.printer || 'IDP SMART'}.`;
     await chrome.storage.session.remove('printPayload');
     window.setTimeout(() => window.close(), 900);

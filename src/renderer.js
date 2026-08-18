@@ -9,34 +9,50 @@ function text(ctx, value, x, y, maxWidth, size, weight = 400) { let px = size; w
         break;
     px--;
 } ctx.fillText(value, x, y); }
-async function base() { const canvas = document.createElement('canvas'); canvas.width = CARD.widthPx; canvas.height = CARD.heightPx; const ctx = canvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 1012, 638); const background = await load(asset('medical-background.jpg')); ctx.drawImage(background, 0, 64, 440, 574); ctx.fillStyle = '#111'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left'; ctx.font = '400 43px Arial'; ctx.textAlign = 'center'; ctx.fillText(ORGANIZATION, 506, 50); ctx.textAlign = 'left'; return { canvas, ctx }; }
+async function base(layer) { const canvas = document.createElement('canvas'); canvas.width = CARD.widthPx; canvas.height = CARD.heightPx; const ctx = canvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 1012, 638); if (layer !== 'black') {
+    const background = await load(asset('medical-background.jpg'));
+    ctx.drawImage(background, 0, 64, 440, 574);
+} ctx.fillStyle = '#111'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left'; if (layer !== 'color') {
+    ctx.font = '400 43px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(ORGANIZATION, 506, 50);
+    ctx.textAlign = 'left';
+} return { canvas, ctx }; }
 function photoFrame(ctx, photo) { ctx.fillStyle = '#eee'; ctx.fillRect(33, 96, 375, 505); cover(ctx, photo, 33, 96, 375, 505); }
 function contain(ctx, image, x, y, w, h) { const scale = Math.min(w / image.naturalWidth, h / image.naturalHeight), dw = image.naturalWidth * scale, dh = image.naturalHeight * scale; ctx.drawImage(image, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh); }
-export async function renderCard(type, e) {
-    const { canvas, ctx } = await base();
+async function renderLayer(type, e, layer) {
+    const { canvas, ctx } = await base(layer);
     if (type === 'temporary') {
-        const color = await load(asset('emblem-color.png'));
-        contain(ctx, color, 32, 96, 375, 505);
-        ctx.font = '400 72px Arial';
-        ctx.fillText('ВРЕМЕННЫЙ', 466, 216);
-        ctx.font = '400 104px Arial';
-        ctx.fillText('ПРОПУСК', 466, 392);
-        ctx.font = '400 37px Arial';
-        ctx.fillText('№ Пропуска', 466, 548);
-        ctx.font = '400 39px Arial';
-        ctx.fillText(e.passNumber || '', 466, 611);
-        ctx.font = '700 39px Arial';
-        ctx.fillText('МО', 914, 609);
+        if (layer !== 'black') {
+            const color = await load(asset('emblem-color.png'));
+            contain(ctx, color, 32, 96, 375, 505);
+        }
+        if (layer !== 'color') {
+            ctx.font = '400 72px Arial';
+            ctx.fillText('ВРЕМЕННЫЙ', 466, 216);
+            ctx.font = '400 104px Arial';
+            ctx.fillText('ПРОПУСК', 466, 392);
+            ctx.font = '400 37px Arial';
+            ctx.fillText('№ Пропуска', 466, 548);
+            ctx.font = '400 39px Arial';
+            ctx.fillText(e.passNumber || '', 466, 611);
+            ctx.font = '700 39px Arial';
+            ctx.fillText('МО', 914, 609);
+        }
         return canvas.toDataURL('image/png');
     }
-    if (e.photo?.dataUrl) {
+    if (layer !== 'black' && e.photo?.dataUrl) {
         try {
             photoFrame(ctx, await load(e.photo.dataUrl));
         }
         catch { }
     }
-    const black = await load(asset('emblem-black-v2.png'));
-    contain(ctx, black, 800, 410, 205, 228);
+    if (layer !== 'color') {
+        const black = await load(asset('emblem-black-v2.png'));
+        contain(ctx, black, 800, 410, 205, 228);
+    }
+    if (layer === 'color')
+        return canvas.toDataURL('image/png');
     const x = 456, w = 540;
     ctx.fillStyle = '#111';
     text(ctx, e.surname, x, 123, w, 39);
@@ -65,3 +81,5 @@ export async function renderCard(type, e) {
     }
     return canvas.toDataURL('image/png');
 }
+export async function renderCard(type, e) { return renderLayer(type, e, 'composite'); }
+export async function renderCardPanels(type, e) { const [colorImageDataUrl, blackImageDataUrl] = await Promise.all([renderLayer(type, e, 'color'), renderLayer(type, e, 'black')]); return { colorImageDataUrl, blackImageDataUrl }; }
