@@ -35,8 +35,8 @@ test('Windows bridge uses the color panel and starts SmartComm printing',()=>{
 
 test('card renderer uses requested Arial point sizes and regular weight',()=>{
   const source=fs.readFileSync(new URL('../extension-ts/renderer.ts',import.meta.url),'utf8');
-  assert.match(source,/ctx\.font='400 83px Arial'/);
-  assert.match(source,/fillText\(ORGANIZATION,506,42,970\)/);
+  assert.match(source,/text\(ctx,ORGANIZATION,506,42,970,83\)/);
+  assert.doesNotMatch(source,/fillText\(ORGANIZATION,506,42,970\)/);
   assert.match(source,/text\(ctx,e\.surname,x,123,w,58\)/);
   assert.match(source,/fontSize:50/);
   assert.match(source,/ctx\.font='400 58px Arial'/);

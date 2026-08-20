@@ -13,10 +13,9 @@ async function base(layer) { const canvas = document.createElement('canvas'); ca
     const background = await load(asset('medical-background.jpg'));
     ctx.drawImage(background, 0, 84, 440, 554);
 } ctx.fillStyle = '#111'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; if (layer !== 'color') {
-    ctx.font = '400 83px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(ORGANIZATION, 506, 42, 970);
+    text(ctx, ORGANIZATION, 506, 42, 970, 83);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
 } return { canvas, ctx }; }
