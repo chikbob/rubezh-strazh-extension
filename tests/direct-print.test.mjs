@@ -65,7 +65,9 @@ test('card renderer uses requested Arial point sizes and regular weight',()=>{
   assert.match(source,/text\(ctx,e\.surname,x,134,w,46\)/);
   assert.match(source,/fontSize:40/);
   assert.match(source,/ctx\.font='400 46px Arial'/);
-  assert.match(source,/COLOR_FILTER='none'/);
+  assert.match(source,/COLOR_FILTER='brightness\(0\.95\) contrast\(1\.14\) saturate\(1\.07\)'/);
+  assert.match(source,/TEXT_STROKE=0\.45/);
+  assert.match(source,/ctx\.strokeText\(value,x,y\)/);
   assert.match(source,/imageSmoothingQuality='high'/);
 });
 
