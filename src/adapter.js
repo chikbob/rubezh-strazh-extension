@@ -38,6 +38,12 @@ function findByLabel(labels) {
         }
     return null;
 }
+function bestImageSource(el) {
+    const srcset = el.getAttribute('srcset') || '';
+    const srcsetItems = srcset.split(',').map(item => { const parts = item.trim().split(/\s+/); const width = Number.parseFloat(parts[1] || '0'); return { src: parts[0] || '', width: Number.isFinite(width) ? width : 0 }; }).filter(item => item.src);
+    const largest = srcsetItems.sort((a, b) => b.width - a.width)[0]?.src;
+    return el.dataset.original || el.dataset.src || largest || el.src || el.currentSrc;
+}
 async function imageToData(el) {
     if (el instanceof HTMLCanvasElement) {
         try {
@@ -49,13 +55,14 @@ async function imageToData(el) {
     }
     if (!(el instanceof HTMLImageElement) || !el.src)
         return null;
+    const source = bestImageSource(el);
     try {
-        const res = await fetch(el.currentSrc || el.src, { credentials: 'include' });
+        const res = await fetch(source, { credentials: 'include' });
         const blob = await res.blob();
-        return await new Promise(ok => { const r = new FileReader(); r.onload = () => ok({ dataUrl: String(r.result), mimeType: blob.type || 'image/jpeg', width: el.naturalWidth, height: el.naturalHeight }); r.onerror = () => ok(null); r.readAsDataURL(blob); });
+        return await new Promise(ok => { const r = new FileReader(); r.onload = () => { const dataUrl = String(r.result), probe = new Image(); probe.onload = () => ok({ dataUrl, mimeType: blob.type || 'image/jpeg', width: probe.naturalWidth, height: probe.naturalHeight }); probe.onerror = () => ok({ dataUrl, mimeType: blob.type || 'image/jpeg', width: el.naturalWidth, height: el.naturalHeight }); probe.src = dataUrl; }; r.onerror = () => ok(null); r.readAsDataURL(blob); });
     }
     catch {
-        return el.src.startsWith('data:') ? { dataUrl: el.src, mimeType: el.src.slice(5, el.src.indexOf(';')), width: el.naturalWidth, height: el.naturalHeight } : null;
+        return source.startsWith('data:') ? { dataUrl: source, mimeType: source.slice(5, source.indexOf(';')), width: el.naturalWidth, height: el.naturalHeight } : null;
     }
 }
 export class RubezhAdapter {
@@ -79,23 +86,18 @@ export class RubezhAdapter {
                 return button;
         }
     } return document.querySelector('employee_view .panel-heading,employee-view .panel-heading,.employee-view .panel-heading,employee_view header,employee-view header'); }
-    async getPhoto() { for (const r of allRoots()) {
-        const dataPhoto = Array.from(r.querySelectorAll('img')).find(image => image.src.startsWith('data:image/jpeg') || image.src.startsWith('data:image/png'));
-        if (dataPhoto) {
-            const p = await imageToData(dataPhoto);
-            if (p)
-                return p;
+    async getPhoto() { const candidates = []; for (const r of allRoots()) {
+        for (const image of Array.from(r.querySelectorAll('img'))) {
+            if (image.src.startsWith('data:image/jpeg') || image.src.startsWith('data:image/png'))
+                candidates.push(image);
         }
-    } for (const r of allRoots())
-        for (const s of PHOTO_SELECTORS) {
-            for (const e of Array.from(r.querySelectorAll(s))) {
-                if (e instanceof HTMLImageElement && /brand-icon|logo/i.test(e.src))
-                    continue;
-                const p = await imageToData(e);
-                if (p)
-                    return p;
-            }
-        } return null; }
+        for (const s of PHOTO_SELECTORS)
+            candidates.push(...Array.from(r.querySelectorAll(s)));
+    } const unique = [...new Set(candidates)].filter(e => !(e instanceof HTMLImageElement) || !/brand-icon|logo/i.test(e.src)); unique.sort((a, b) => { const area = (e) => e instanceof HTMLImageElement ? e.naturalWidth * e.naturalHeight : e instanceof HTMLCanvasElement ? e.width * e.height : 0; return area(b) - area(a); }); for (const e of unique) {
+        const p = await imageToData(e);
+        if (p)
+            return p;
+    } return null; }
     async getEmployeeData() { const value = (k) => clean(findByLabel(FIELD_LABELS[k])?.value || ''); const surname = value('surname'), name = value('name'), patronymic = value('patronymic'), visitor = isVisitorPage(), comment = visitor ? (visitorComment() || value('comment')) : value('comment'), position = value('position') || (visitor ? comment : ''); let passNumber; for (const root of allRoots())
         for (const node of Array.from(root.querySelectorAll('a,span,div,td'))) {
             if (node.children.length > 2)
