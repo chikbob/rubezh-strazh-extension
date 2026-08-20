@@ -8,7 +8,16 @@ test('print page sends the rendered PNG to the local SmartComm bridge',()=>{
   assert.match(source,/POST/);
   assert.match(source,/colorImageDataUrl/);
   assert.match(source,/blackImageDataUrl/);
+  assert.match(source,/printButton\.addEventListener\('click'/);
+  assert.match(source,/printButton\.disabled=true/);
   assert.doesNotMatch(source,/window\.print\s*\(/);
+});
+
+test('print preview requires explicit confirmation and offers cancellation',()=>{
+  const html=fs.readFileSync(new URL('../src/print.html',import.meta.url),'utf8');
+  assert.match(html,/id="confirm-print"[^>]*disabled/);
+  assert.match(html,/id="cancel-print"/);
+  assert.match(html,/Предпросмотр пропуска/);
 });
 
 test('Windows bridge uses the color panel and starts SmartComm printing',()=>{

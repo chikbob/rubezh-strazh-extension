@@ -1,25 +1,54 @@
 import { renderCard, renderCardPanels } from './renderer.js';
 const BRIDGE = 'http://127.0.0.1:18451';
-async function directPrint(colorImageDataUrl, blackImageDataUrl) { const response = await fetch(`${BRIDGE}/print`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ colorImageDataUrl, blackImageDataUrl }) }); const result = await response.json(); if (!response.ok || !result.ok)
-    throw new Error(result.error || `Ошибка моста печати (${response.status})`); return result; }
-async function main() { const stored = await chrome.storage.session.get('printPayload'); const payload = stored.printPayload; const status = document.querySelector('#status'); if (!payload) {
-    status.textContent = 'Данные пропуска не найдены.';
-    return;
-} try {
-    status.textContent = 'Формирование пропуска…';
-    const [dataUrl, panels] = await Promise.all([renderCard(payload.type, payload.employee), renderCardPanels(payload.type, payload.employee)]);
-    const image = document.querySelector('#card');
-    image.src = dataUrl;
-    await image.decode();
-    document.title = `Пропуск — ${payload.employee.fullName}`;
-    status.textContent = 'Отправка цветной и K-панелей на IDP SMART…';
-    const result = await directPrint(panels.colorImageDataUrl, panels.blackImageDataUrl);
-    status.textContent = `Задание отправлено на ${result.printer || 'IDP SMART'}.`;
-    await chrome.storage.session.remove('printPayload');
-    window.setTimeout(() => window.close(), 900);
+async function directPrint(colorImageDataUrl, blackImageDataUrl) {
+    const response = await fetch(`${BRIDGE}/print`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ colorImageDataUrl, blackImageDataUrl }) });
+    const result = await response.json();
+    if (!response.ok || !result.ok)
+        throw new Error(result.error || `Ошибка моста печати (${response.status})`);
+    return result;
 }
-catch (error) {
-    const message = String(error);
-    status.textContent = message.includes('Failed to fetch') ? `Print Bridge не отвечает. Повторно запустите bridge\\install.cmd. (${message})` : `Ошибка IDP SMART: ${message}`;
-} }
+async function main() {
+    const stored = await chrome.storage.session.get('printPayload');
+    const payload = stored.printPayload;
+    const status = document.querySelector('#status');
+    const printButton = document.querySelector('#confirm-print');
+    const cancelButton = document.querySelector('#cancel-print');
+    if (!payload) {
+        status.textContent = 'Данные пропуска не найдены.';
+        return;
+    }
+    cancelButton.addEventListener('click', async () => { await chrome.storage.session.remove('printPayload'); window.close(); });
+    try {
+        status.textContent = 'Формирование пропуска…';
+        const [dataUrl, panels] = await Promise.all([renderCard(payload.type, payload.employee), renderCardPanels(payload.type, payload.employee)]);
+        const image = document.querySelector('#card');
+        image.src = dataUrl;
+        await image.decode();
+        document.title = `Пропуск — ${payload.employee.fullName}`;
+        status.textContent = 'Проверьте данные и нажмите «Печать».';
+        printButton.disabled = false;
+        printButton.addEventListener('click', async () => {
+            if (printButton.disabled)
+                return;
+            printButton.disabled = true;
+            cancelButton.disabled = true;
+            status.textContent = 'Отправка на IDP SMART…';
+            try {
+                const result = await directPrint(panels.colorImageDataUrl, panels.blackImageDataUrl);
+                status.textContent = `Задание отправлено на ${result.printer || 'IDP SMART'}.`;
+                await chrome.storage.session.remove('printPayload');
+                window.setTimeout(() => window.close(), 900);
+            }
+            catch (error) {
+                const message = String(error);
+                status.textContent = message.includes('Failed to fetch') ? `Print Bridge не отвечает. Повторно запустите bridge\\install.cmd. (${message})` : `Ошибка IDP SMART: ${message}`;
+                printButton.disabled = false;
+                cancelButton.disabled = false;
+            }
+        });
+    }
+    catch (error) {
+        status.textContent = `Ошибка формирования пропуска: ${String(error)}`;
+    }
+}
 void main();
