@@ -28,6 +28,8 @@ test('Windows bridge uses the color panel and starts SmartComm printing',()=>{
   assert.match(source,/DrawImage\(\$handle, 0, 1,/);
   assert.match(source,/DrawImage\(\$handle, 0, 2,/);
   assert.doesNotMatch(source,/GetPrinterSettings2|SetPrinterSettings2|SetJobColorDensity|color-density/);
+  assert.match(source,/SmartComm_GetRibbonInfo/);
+  assert.match(source,/ribbonType=\$ribbonType/);
   assert.match(source,/bridge\.log/);
   assert.match(source,/\[SmartSdk\]::Print\(\$handle\)/);
 });
@@ -36,10 +38,10 @@ test('card renderer uses requested Arial point sizes and regular weight',()=>{
   const source=fs.readFileSync(new URL('../extension-ts/renderer.ts',import.meta.url),'utf8');
   assert.match(source,/text\(ctx,ORGANIZATION,506,42,970,48\)/);
   assert.doesNotMatch(source,/fillText\(ORGANIZATION,506,42,970\)/);
-  assert.match(source,/text\(ctx,e\.surname,x,119,w,46\)/);
+  assert.match(source,/text\(ctx,e\.surname,x,134,w,46\)/);
   assert.match(source,/fontSize:40/);
   assert.match(source,/ctx\.font='400 46px Arial'/);
-  assert.match(source,/brightness\(0\.96\) contrast\(1\.10\) saturate\(1\.08\)/);
+  assert.match(source,/brightness\(0\.90\) contrast\(1\.18\) saturate\(1\.12\)/);
   assert.match(source,/imageSmoothingQuality='high'/);
 });
 

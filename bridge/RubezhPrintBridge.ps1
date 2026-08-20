@@ -24,6 +24,9 @@ public static class SmartSdk {
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_DrawImage")]
     public static extern uint DrawImage(IntPtr handle, byte page, byte panel, int x, int y, int width, int height, IntPtr imagePath, IntPtr area);
 
+    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_GetRibbonInfo")]
+    public static extern uint GetRibbonInfo(IntPtr handle, ref int type, ref int maximum, ref int remaining, ref int grade);
+
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_Print")]
     public static extern uint Print(IntPtr handle);
 
@@ -100,7 +103,12 @@ function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
         $devicePtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($printer)
         $result = [SmartSdk]::OpenDevice([ref]$handle, $devicePtr, 1)
         if ($result -ne 0) { throw "SmartComm could not open '$printer' (code $result)." }
-        Write-BridgeLog "Print started: printer=$printer; driver settings unchanged"
+        $ribbonType = -1
+        $ribbonMaximum = -1
+        $ribbonRemaining = -1
+        $ribbonGrade = -1
+        $ribbonResult = [SmartSdk]::GetRibbonInfo($handle, [ref]$ribbonType, [ref]$ribbonMaximum, [ref]$ribbonRemaining, [ref]$ribbonGrade)
+        Write-BridgeLog "Print started: printer=$printer; driver settings unchanged; ribbonResult=$ribbonResult ribbonType=$ribbonType ribbonRemaining=$ribbonRemaining ribbonMaximum=$ribbonMaximum ribbonGrade=$ribbonGrade"
 
         $colorPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($colorPath)
         $blackPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($blackPath)
@@ -114,8 +122,8 @@ function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
         if ($result -ne 0) { throw "SmartComm could not draw the black panel (code $result)." }
         $result = [SmartSdk]::Print($handle)
         if ($result -ne 0) { throw "SmartComm rejected the print job (code $result)." }
-        Write-BridgeLog 'Print accepted by SmartComm.'
-        return @{ ok = $true; printer = $printer }
+        Write-BridgeLog "Print accepted by SmartComm: result=$result ribbonType=$ribbonType ribbonRemaining=$ribbonRemaining"
+        return @{ ok = $true; printer = $printer; ribbonType = $ribbonType; ribbonRemaining = $ribbonRemaining }
     }
     finally {
         if ($handle -ne [IntPtr]::Zero) { [SmartSdk]::CloseDevice($handle) | Out-Null }

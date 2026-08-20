@@ -1,7 +1,7 @@
 import { normalizePosition } from './positionNormalizer.js';
 export const CARD = { widthPx: 1012, heightPx: 638, widthMm: 85.6, heightMm: 54, dpi: 300 };
 const asset = (name) => chrome.runtime.getURL(`src/assets/${name}`), ORGANIZATION = 'ММЦ ФГБУЗ ЮОМЦ ФМБА России';
-const COLOR_FILTER = 'brightness(0.96) contrast(1.10) saturate(1.08)';
+const COLOR_FILTER = 'brightness(0.90) contrast(1.18) saturate(1.12)';
 const load = (src) => new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = reject; image.src = src; });
 function cover(ctx, image, x, y, w, h) { const scale = Math.max(w / image.naturalWidth, h / image.naturalHeight), sw = w / scale, sh = h / scale; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(image, (image.naturalWidth - sw) / 2, (image.naturalHeight - sh) / 2, sw, sh, x, y, w, h); }
 function text(ctx, value, x, y, maxWidth, size, weight = 400) { let px = size; while (px > 18) {
@@ -16,7 +16,7 @@ async function base(layer) { const canvas = document.createElement('canvas'); ca
     ctx.filter = COLOR_FILTER;
     ctx.drawImage(background, 0, 84, 440, 554);
     ctx.restore();
-} ctx.fillStyle = '#111'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; if (layer !== 'color') {
+} ctx.fillStyle = '#000'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; if (layer !== 'color') {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     text(ctx, ORGANIZATION, 506, 42, 970, 48);
@@ -59,27 +59,27 @@ async function renderLayer(type, e, layer) {
     if (layer === 'color')
         return canvas.toDataURL('image/png');
     const x = 456, w = 540;
-    ctx.fillStyle = '#111';
-    text(ctx, e.surname, x, 119, w, 46);
-    text(ctx, e.name, x, 181, w, 46);
-    text(ctx, e.patronymic || '', x, 243, w, 46);
+    ctx.fillStyle = '#000';
+    text(ctx, e.surname, x, 134, w, 46);
+    text(ctx, e.name, x, 196, w, 46);
+    text(ctx, e.patronymic || '', x, 258, w, 46);
     const fit = normalizePosition(ctx, e.position || '', { fontFamily: 'Arial', fontSize: 40, minScale: .72, maxWidth: w, maxLines: 2, lineHeight: 44 }, true);
     ctx.font = `400 ${fit.fontSize}px Arial`;
-    fit.lines.forEach((line, index) => ctx.fillText(line, x, 309 + index * 44));
+    fit.lines.forEach((line, index) => ctx.fillText(line, x, 324 + index * 44));
     if (type === 'mosn') {
         ctx.font = '400 46px Arial';
-        ctx.fillText('МОСН', x, 422);
-        ctx.fillText('№ Пропуска', x, 531);
-        ctx.fillText(e.passNumber || '', x, 593);
+        ctx.fillText('МОСН', x, 437);
+        ctx.fillText('№ Пропуска', x, 546);
+        ctx.fillText(e.passNumber || '', x, 608);
     }
     else {
         ctx.font = '400 46px Arial';
         const tabLabel = 'Таб. №';
-        ctx.fillText(tabLabel, x, 414);
+        ctx.fillText(tabLabel, x, 429);
         const tabX = x + ctx.measureText(tabLabel).width + 10;
-        ctx.fillText(e.employeeNumber || '', tabX, 414);
-        ctx.fillText('№ Пропуска', x, 513);
-        ctx.fillText(e.passNumber || '', x, 575);
+        ctx.fillText(e.employeeNumber || '', tabX, 429);
+        ctx.fillText('№ Пропуска', x, 528);
+        ctx.fillText(e.passNumber || '', x, 590);
     }
     return canvas.toDataURL('image/png');
 }
