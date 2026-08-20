@@ -10,12 +10,12 @@
     main{display:grid;min-height:100vh;place-items:center;padding:28px}
     .preview{width:min(92vw,760px);padding:24px;background:#fff;border-radius:8px;box-shadow:0 8px 32px #0003}
     h1{margin:0 0 16px;font-size:22px}.sheet{width:100%;aspect-ratio:85.6/54;background:#fff;box-shadow:0 3px 16px #0004}
-    .sheet img{display:block;width:100%;height:100%}#status{min-height:22px;margin:18px 0 10px;color:#4d5963}
+    .sheet img{display:block;width:100%;height:100%}.photo-step{display:flex;align-items:center;gap:12px;margin-top:16px}.photo-step button{min-width:150px}.photo-name{min-width:0;overflow:hidden;color:#4d5963;text-overflow:ellipsis;white-space:nowrap}#status{min-height:22px;margin:14px 0 10px;color:#4d5963}
     .actions{display:flex;justify-content:flex-end;gap:10px}
     button{min-width:120px;min-height:42px;padding:0 18px;border:1px solid #aeb7bf;border-radius:5px;background:#fff;font:700 15px Arial;cursor:pointer}
     button:disabled{cursor:default;opacity:.5}#confirm-print{border-color:#8f172c;background:#a71930;color:#fff}
-    @media(max-width:600px){main{padding:10px}.preview{padding:14px}.actions{display:grid;grid-template-columns:1fr 1fr}button{min-width:0}}
+    @media(max-width:600px){main{padding:10px}.preview{padding:14px}.photo-step{align-items:stretch;flex-direction:column}.photo-step button{min-width:0}.actions{display:grid;grid-template-columns:1fr 1fr}button{min-width:0}}
   </style>
 </head>
-<body><main><section class="preview"><h1>Предпросмотр пропуска</h1><div class="sheet"><img id="card" alt="Пропуск"></div><p id="status">Формирование пропуска…</p><div class="actions"><button id="cancel-print" type="button">Отмена</button><button id="confirm-print" type="button" disabled>Печать</button></div></section></main><script type="module" src="print.js"></script></body>
+<body><main><section class="preview"><h1>Предпросмотр пропуска</h1><div class="sheet"><img id="card" alt="Пропуск"></div><div class="photo-step"><input id="photo-file" type="file" accept="image/jpeg,image/png,image/webp,image/bmp,.bmp" hidden><button id="select-photo" type="button" hidden>Выбрать фото</button><span id="photo-name" class="photo-name" hidden>Фото не выбрано</span></div><p id="status">Формирование пропуска…</p><div class="actions"><button id="cancel-print" type="button">Отмена</button><button id="confirm-print" type="button" disabled>Печать</button></div></section></main><script type="module" src="print.js"></script></body>
 </html>

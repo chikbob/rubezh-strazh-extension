@@ -9,7 +9,7 @@ test('print page sends the rendered PNG to the local SmartComm bridge',()=>{
   assert.match(source,/colorImageDataUrl/);
   assert.match(source,/blackImageDataUrl/);
   assert.match(source,/printButton\.addEventListener\('click'/);
-  assert.match(source,/printButton\.disabled=true/);
+  assert.match(source,/printButton\.disabled=busy\|\|!panels/);
   assert.doesNotMatch(source,/window\.print\s*\(/);
 });
 
@@ -18,6 +18,19 @@ test('print preview requires explicit confirmation and offers cancellation',()=>
   assert.match(html,/id="confirm-print"[^>]*disabled/);
   assert.match(html,/id="cancel-print"/);
   assert.match(html,/Предпросмотр пропуска/);
+});
+
+test('photo passes require a validated local source image before printing',()=>{
+  const source=fs.readFileSync(new URL('../extension-ts/print.ts',import.meta.url),'utf8');
+  const html=fs.readFileSync(new URL('../src/print.html',import.meta.url),'utf8');
+  assert.match(source,/photo:undefined/);
+  assert.match(source,/payload\.type!=='temporary'/);
+  assert.match(source,/ALLOWED_IMAGE_TYPES/);
+  assert.match(source,/readAsDataURL\(file\)/);
+  assert.match(source,/if\(isBusy\|\|!panels\)return/);
+  assert.match(source,/renderCardPanels\(payload\.type,employee\)/);
+  assert.match(html,/id="photo-file"[^>]*type="file"[^>]*accept="image\/jpeg,image\/png,image\/webp,image\/bmp,\.bmp"/);
+  assert.match(html,/id="select-photo"/);
 });
 
 test('Windows bridge uses the color panel and starts SmartComm printing',()=>{
