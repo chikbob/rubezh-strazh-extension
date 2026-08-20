@@ -27,7 +27,9 @@ test('Windows bridge uses the color panel and starts SmartComm printing',()=>{
   assert.match(source,/Format24bppRgb/);
   assert.match(source,/DrawImage\(\$handle, 0, 1,/);
   assert.match(source,/DrawImage\(\$handle, 0, 2,/);
-  assert.doesNotMatch(source,/GetPrinterSettings2|SetPrinterSettings2|SetJobColorDensity|color-density/);
+  assert.match(source,/SetJobMainDensity\(\$handle, 30\)/);
+  assert.match(source,/RestoreJobMainDensity\(\$handle, \$originalMainDensity\)/);
+  assert.doesNotMatch(source,/SetPanelDensity|color-density\.txt/);
   assert.match(source,/SmartComm_GetRibbonInfo/);
   assert.match(source,/ribbonType=\$ribbonType/);
   assert.match(source,/bridge\.log/);
@@ -41,7 +43,7 @@ test('card renderer uses requested Arial point sizes and regular weight',()=>{
   assert.match(source,/text\(ctx,e\.surname,x,134,w,46\)/);
   assert.match(source,/fontSize:40/);
   assert.match(source,/ctx\.font='400 46px Arial'/);
-  assert.match(source,/brightness\(0\.98\) contrast\(1\.30\) saturate\(1\.30\)/);
+  assert.match(source,/COLOR_FILTER='none'/);
   assert.match(source,/imageSmoothingQuality='high'/);
 });
 

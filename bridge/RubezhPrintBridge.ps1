@@ -27,11 +27,49 @@ public static class SmartSdk {
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_GetRibbonInfo")]
     public static extern uint GetRibbonInfo(IntPtr handle, ref int type, ref int maximum, ref int remaining, ref int grade);
 
+    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_GetPrinterSettings2")]
+    private static extern uint GetPrinterSettings2(IntPtr handle, IntPtr settings, ref int length);
+
+    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_SetPrinterSettings2")]
+    private static extern uint SetPrinterSettings2(IntPtr handle, IntPtr settings, int length);
+
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_Print")]
     public static extern uint Print(IntPtr handle);
 
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_CloseDevice")]
     public static extern uint CloseDevice(IntPtr handle);
+
+    // SMART51_DEVMODE.dwASMain from the vendor SDK. This is a per-job image
+    // processing value, not firmware panel calibration or ribbon control.
+    private const int Smart51MainDensityOffset = 796;
+
+    public static int SetJobMainDensity(IntPtr handle, int density) {
+        const int capacity = 16384;
+        IntPtr settings = Marshal.AllocHGlobal(capacity);
+        try {
+            int length = capacity;
+            uint result = GetPrinterSettings2(handle, settings, ref length);
+            if (result != 0) throw new InvalidOperationException("SmartComm could not read job settings (code " + result + ").");
+            if (length <= Smart51MainDensityOffset + 4) throw new InvalidOperationException("SmartComm returned unsupported SMART-51 job settings (" + length + " bytes).");
+            int original = Marshal.ReadInt32(settings, Smart51MainDensityOffset);
+            Marshal.WriteInt32(settings, Smart51MainDensityOffset, Math.Max(-100, Math.Min(100, density)));
+            result = SetPrinterSettings2(handle, settings, length);
+            if (result != 0) throw new InvalidOperationException("SmartComm could not apply temporary YMCK density (code " + result + ").");
+            return original;
+        } finally { Marshal.FreeHGlobal(settings); }
+    }
+
+    public static uint RestoreJobMainDensity(IntPtr handle, int density) {
+        const int capacity = 16384;
+        IntPtr settings = Marshal.AllocHGlobal(capacity);
+        try {
+            int length = capacity;
+            uint result = GetPrinterSettings2(handle, settings, ref length);
+            if (result != 0 || length <= Smart51MainDensityOffset + 4) return result == 0 ? 1u : result;
+            Marshal.WriteInt32(settings, Smart51MainDensityOffset, density);
+            return SetPrinterSettings2(handle, settings, length);
+        } finally { Marshal.FreeHGlobal(settings); }
+    }
 
     public static string GetFirstDeviceDescription() {
         const int maxDevices = 32;
@@ -98,6 +136,8 @@ function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
     $colorPtr = [IntPtr]::Zero
     $blackPtr = [IntPtr]::Zero
     $rectPtr = [IntPtr]::Zero
+    $originalMainDensity = 0
+    $densityWasChanged = $false
     try {
         $printer = Get-SmartPrinter
         $devicePtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($printer)
@@ -108,7 +148,9 @@ function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
         $ribbonRemaining = -1
         $ribbonGrade = -1
         $ribbonResult = [SmartSdk]::GetRibbonInfo($handle, [ref]$ribbonType, [ref]$ribbonMaximum, [ref]$ribbonRemaining, [ref]$ribbonGrade)
-        Write-BridgeLog "Print started: printer=$printer; driver settings unchanged; ribbonResult=$ribbonResult ribbonType=$ribbonType ribbonRemaining=$ribbonRemaining ribbonMaximum=$ribbonMaximum ribbonGrade=$ribbonGrade"
+        $originalMainDensity = [SmartSdk]::SetJobMainDensity($handle, 30)
+        $densityWasChanged = $true
+        Write-BridgeLog "Print started: printer=$printer; temporaryMainDensity=30 originalMainDensity=$originalMainDensity; ribbonResult=$ribbonResult ribbonType=$ribbonType ribbonRemaining=$ribbonRemaining ribbonMaximum=$ribbonMaximum ribbonGrade=$ribbonGrade"
 
         $colorPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($colorPath)
         $blackPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($blackPath)
@@ -126,6 +168,10 @@ function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
         return @{ ok = $true; printer = $printer; ribbonType = $ribbonType; ribbonRemaining = $ribbonRemaining }
     }
     finally {
+        if ($handle -ne [IntPtr]::Zero -and $densityWasChanged) {
+            $restoreResult = [SmartSdk]::RestoreJobMainDensity($handle, $originalMainDensity)
+            Write-BridgeLog "Job density restore: originalMainDensity=$originalMainDensity result=$restoreResult"
+        }
         if ($handle -ne [IntPtr]::Zero) { [SmartSdk]::CloseDevice($handle) | Out-Null }
         if ($devicePtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($devicePtr) }
         if ($colorPtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($colorPtr) }
