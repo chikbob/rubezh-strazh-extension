@@ -24,11 +24,36 @@ public static class SmartSdk {
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_DrawImage")]
     public static extern uint DrawImage(IntPtr handle, byte page, byte panel, int x, int y, int width, int height, IntPtr imagePath, IntPtr area);
 
+    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_GetPrinterSettings2")]
+    private static extern uint GetPrinterSettings2(IntPtr handle, IntPtr settings, ref int length);
+
+    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_SetPrinterSettings2")]
+    private static extern uint SetPrinterSettings2(IntPtr handle, IntPtr settings, int length);
+
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_Print")]
     public static extern uint Print(IntPtr handle);
 
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_CloseDevice")]
     public static extern uint CloseDevice(IntPtr handle);
+
+    public static void SetJobColorDensity(IntPtr handle, int density) {
+        // SMART51_DEVMODE = DEVMODEW (220) + reserved (564) + OEM header (12).
+        // dwASMain is the first DWORD after that header (offset 796).
+        const int settingsCapacity = 16384;
+        const int mainDensityOffset = 796;
+        IntPtr settings = Marshal.AllocHGlobal(settingsCapacity);
+        try {
+            int length = settingsCapacity;
+            uint result = GetPrinterSettings2(handle, settings, ref length);
+            if (result != 0) throw new InvalidOperationException("SmartComm could not read SMART-51 print settings (code " + result + ").");
+            if (length <= mainDensityOffset + 4) throw new InvalidOperationException("SmartComm returned an unsupported SMART-51 settings block (" + length + " bytes).");
+            Marshal.WriteInt32(settings, mainDensityOffset, Math.Max(-100, Math.Min(100, density)));
+            result = SetPrinterSettings2(handle, settings, length);
+            if (result != 0) throw new InvalidOperationException("SmartComm could not apply color density (code " + result + ").");
+        } finally {
+            Marshal.FreeHGlobal(settings);
+        }
+    }
 
     public static string GetFirstDeviceDescription() {
         const int maxDevices = 32;
@@ -63,6 +88,19 @@ function Get-SmartPrinter {
     return [SmartSdk]::GetFirstDeviceDescription()
 }
 
+function Get-ColorDensity {
+    $configured = Join-Path $bridgeDir 'color-density.txt'
+    if (Test-Path $configured) {
+        $value = 0
+        if (-not [int]::TryParse((Get-Content $configured -Raw).Trim(), [ref]$value)) {
+            throw 'color-density.txt must contain an integer from -100 to 100.'
+        }
+        if ($value -lt -100 -or $value -gt 100) { throw 'color-density.txt must be from -100 to 100.' }
+        return $value
+    }
+    return 80
+}
+
 function Convert-ToOpaqueBitmap([string]$dataUrl, [string]$name) {
     if (-not $dataUrl.StartsWith('data:image/png;base64,')) { throw 'The request must contain PNG panel images.' }
     Add-Type -AssemblyName System.Drawing
@@ -95,6 +133,8 @@ function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
         $devicePtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($printer)
         $result = [SmartSdk]::OpenDevice([ref]$handle, $devicePtr, 1)
         if ($result -ne 0) { throw "SmartComm could not open '$printer' (code $result)." }
+        $colorDensity = Get-ColorDensity
+        [SmartSdk]::SetJobColorDensity($handle, $colorDensity)
 
         $colorPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($colorPath)
         $blackPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($blackPath)
@@ -108,7 +148,7 @@ function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
         if ($result -ne 0) { throw "SmartComm could not draw the black panel (code $result)." }
         $result = [SmartSdk]::Print($handle)
         if ($result -ne 0) { throw "SmartComm rejected the print job (code $result)." }
-        return @{ ok = $true; printer = $printer }
+        return @{ ok = $true; printer = $printer; colorDensity = $colorDensity }
     }
     finally {
         if ($handle -ne [IntPtr]::Zero) { [SmartSdk]::CloseDevice($handle) | Out-Null }

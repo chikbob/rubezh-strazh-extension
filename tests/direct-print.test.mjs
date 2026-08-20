@@ -18,6 +18,8 @@ test('Windows bridge uses the color panel and starts SmartComm printing',()=>{
   assert.match(source,/Format24bppRgb/);
   assert.match(source,/DrawImage\(\$handle, 0, 1,/);
   assert.match(source,/DrawImage\(\$handle, 0, 2,/);
+  assert.match(source,/SetJobColorDensity\(\$handle, \$colorDensity\)/);
+  assert.match(source,/return 80/);
   assert.match(source,/\[SmartSdk\]::Print\(\$handle\)/);
 });
 
