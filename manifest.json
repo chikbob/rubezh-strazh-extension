@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RUBEZH STRAZH — печать пропусков",
-  "version": "2.3.2",
+  "version": "2.3.3",
   "description": "Локальная подготовка и печать пропусков из RUBEZH STRAZH.",
   "permissions": ["storage"],
   "host_permissions": ["http://*/*", "https://*/*"],

@@ -10,15 +10,18 @@ function text(ctx, value, x, y, maxWidth, size, weight = 400) { let px = size; w
     px--;
 } ctx.fillText(value, x, y); }
 async function base(layer) { const canvas = document.createElement('canvas'); canvas.width = CARD.widthPx; canvas.height = CARD.heightPx; const ctx = canvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 1012, 638); if (layer !== 'black') {
+    ctx.save();
+    ctx.filter = 'contrast(1.08) saturate(1.10)';
     const background = await load(asset('medical-background.jpg'));
     ctx.drawImage(background, 0, 64, 440, 574);
+    ctx.restore();
 } ctx.fillStyle = '#111'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left'; if (layer !== 'color') {
     ctx.font = '400 43px Arial';
     ctx.textAlign = 'center';
     ctx.fillText(ORGANIZATION, 506, 50);
     ctx.textAlign = 'left';
 } return { canvas, ctx }; }
-function photoFrame(ctx, photo) { ctx.fillStyle = '#eee'; ctx.fillRect(33, 96, 375, 505); cover(ctx, photo, 33, 96, 375, 505); }
+function photoFrame(ctx, photo) { ctx.fillStyle = '#eee'; ctx.fillRect(33, 96, 375, 505); ctx.save(); ctx.filter = 'contrast(1.08) saturate(1.10)'; cover(ctx, photo, 33, 96, 375, 505); ctx.restore(); }
 function contain(ctx, image, x, y, w, h) { const scale = Math.min(w / image.naturalWidth, h / image.naturalHeight), dw = image.naturalWidth * scale, dh = image.naturalHeight * scale; ctx.drawImage(image, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh); }
 async function renderLayer(type, e, layer) {
     const { canvas, ctx } = await base(layer);
@@ -55,28 +58,28 @@ async function renderLayer(type, e, layer) {
         return canvas.toDataURL('image/png');
     const x = 456, w = 540;
     ctx.fillStyle = '#111';
-    text(ctx, e.surname, x, 123, w, 39);
-    text(ctx, e.name, x, 193, w, 39);
-    text(ctx, e.patronymic || '', x, 263, w, 39);
+    text(ctx, e.surname, x, 123, w, 39, 700);
+    text(ctx, e.name, x, 193, w, 39, 700);
+    text(ctx, e.patronymic || '', x, 263, w, 39, 700);
     const fit = normalizePosition(ctx, e.position || '', { fontFamily: 'Arial', fontSize: 32, minScale: .85, maxWidth: w, maxLines: 2, lineHeight: 36 }, true);
-    ctx.font = `400 ${fit.fontSize}px Arial`;
+    ctx.font = `700 ${fit.fontSize}px Arial`;
     fit.lines.forEach((line, index) => ctx.fillText(line, x, 333 + index * 36));
     if (type === 'mosn') {
-        ctx.font = '400 44px Arial';
+        ctx.font = '700 44px Arial';
         ctx.fillText('МОСН', x, 444);
-        ctx.font = '400 35px Arial';
+        ctx.font = '700 35px Arial';
         ctx.fillText('№ Пропуска', x, 552);
-        ctx.font = '400 39px Arial';
+        ctx.font = '700 39px Arial';
         ctx.fillText(e.passNumber || '', x, 617);
     }
     else {
-        ctx.font = '400 35px Arial';
+        ctx.font = '700 35px Arial';
         const tabLabel = 'Таб. №';
         ctx.fillText(tabLabel, x, 431);
         const tabX = x + ctx.measureText(tabLabel).width + 12;
         ctx.fillText(e.employeeNumber || '', tabX, 431);
         ctx.fillText('№ Пропуска', x, 530);
-        ctx.font = '400 39px Arial';
+        ctx.font = '700 39px Arial';
         ctx.fillText(e.passNumber || '', x, 599);
     }
     return canvas.toDataURL('image/png');
