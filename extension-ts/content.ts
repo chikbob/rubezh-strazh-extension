@@ -25,7 +25,21 @@ function findSaveButton():HTMLElement|null{
 function makeButton(save:HTMLElement,type:PassType,letter:string,title:string){
  const button=document.createElement('button');button.type='button';button.className=save.className;button.setAttribute(MARK,type);button.title=title;button.setAttribute('aria-label',title);button.textContent=letter;
  const rect=save.getBoundingClientRect();const computed=getComputedStyle(save);Object.assign(button.style,{width:rect.width?`${rect.width}px`:computed.width,height:rect.height?`${rect.height}px`:computed.height,minWidth:rect.width?`${rect.width}px`:computed.minWidth,minHeight:rect.height?`${rect.height}px`:computed.minHeight,padding:computed.padding,margin:computed.margin,border:computed.border,borderRadius:computed.borderRadius,background:computed.background,color:computed.color,fontFamily:computed.fontFamily,fontSize:computed.fontSize,fontWeight:'700',lineHeight:computed.lineHeight,verticalAlign:computed.verticalAlign,cursor:'pointer'});
- button.addEventListener('click',async event=>{event.preventDefault();event.stopPropagation();const employee=await adapter.getEmployeeData();if(!employee.fullName){alert('Не удалось получить ФИО из карточки RUBEZH STRAZH.');return}await chrome.runtime.sendMessage({type:'PRINT_PASS',passType:type,employee})});return button;
+ button.addEventListener('click',async event=>{
+  event.preventDefault();event.stopPropagation();
+  button.setAttribute('disabled','');
+  try{
+   if(!chrome.runtime?.id)throw new Error('Extension context invalidated');
+   const employee=await adapter.getEmployeeData();
+   if(!employee.fullName){alert('Не удалось получить ФИО из карточки RUBEZH STRAZH.');return}
+   const response=await chrome.runtime.sendMessage({type:'PRINT_PASS',passType:type,employee}) as{ok?:boolean;error?:string}|undefined;
+   if(!response?.ok)throw new Error(response?.error||'Фоновый процесс расширения не ответил.');
+  }catch(error){
+   const message=String(error);
+   if(/context invalidated|receiving end does not exist/iu.test(message))alert('Расширение было обновлено или перезапущено. Обновите страницу RUBEZH (Ctrl+R) и нажмите кнопку ещё раз.');
+   else alert(`Не удалось открыть предпросмотр пропуска: ${message}`);
+  }finally{button.removeAttribute('disabled')}
+ });return button;
 }
 
 function inject(){

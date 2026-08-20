@@ -47,7 +47,7 @@ async function main(){
  let isBusy=false;
  if(!payload){status.textContent='Данные пропуска не найдены.';return}
 
- const requiresPhoto=payload.type!=='temporary';
+ const requiresPhoto=payload.type==='employee'||payload.type==='mosn';
  const employeeWithoutPhoto:EmployeeData={...payload.employee,photo:undefined};
  const setControlsBusy=(busy:boolean)=>{
   isBusy=busy;

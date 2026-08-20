@@ -24,13 +24,22 @@ test('photo passes require a validated local source image before printing',()=>{
   const source=fs.readFileSync(new URL('../extension-ts/print.ts',import.meta.url),'utf8');
   const html=fs.readFileSync(new URL('../src/print.html',import.meta.url),'utf8');
   assert.match(source,/photo:undefined/);
-  assert.match(source,/payload\.type!=='temporary'/);
+  assert.match(source,/payload\.type==='employee'\|\|payload\.type==='mosn'/);
   assert.match(source,/ALLOWED_IMAGE_TYPES/);
   assert.match(source,/readAsDataURL\(file\)/);
   assert.match(source,/if\(isBusy\|\|!panels\)return/);
   assert.match(source,/renderCardPanels\(payload\.type,employee\)/);
   assert.match(html,/id="photo-file"[^>]*type="file"[^>]*accept="image\/jpeg,image\/png,image\/webp,image\/bmp,\.bmp"/);
   assert.match(html,/id="select-photo"/);
+});
+
+test('content buttons handle a reloaded extension context without an unhandled rejection',()=>{
+  const source=fs.readFileSync(new URL('../extension-ts/content.ts',import.meta.url),'utf8');
+  assert.match(source,/if\(!chrome\.runtime\?\.id\)throw new Error\('Extension context invalidated'\)/);
+  assert.match(source,/const response=await chrome\.runtime\.sendMessage/);
+  assert.match(source,/if\(!response\?\.ok\)throw new Error/);
+  assert.match(source,/context invalidated\|receiving end does not exist/);
+  assert.match(source,/Обновите страницу RUBEZH \(Ctrl\+R\)/);
 });
 
 test('Windows bridge uses the color panel and starts SmartComm printing',()=>{

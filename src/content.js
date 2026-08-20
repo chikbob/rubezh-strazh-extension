@@ -204,12 +204,23 @@
     button.addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const employee = await adapter.getEmployeeData();
-      if (!employee.fullName) {
-        alert("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u044C \u0424\u0418\u041E \u0438\u0437 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 RUBEZH STRAZH.");
-        return;
+      button.setAttribute("disabled", "");
+      try {
+        if (!chrome.runtime?.id) throw new Error("Extension context invalidated");
+        const employee = await adapter.getEmployeeData();
+        if (!employee.fullName) {
+          alert("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u044C \u0424\u0418\u041E \u0438\u0437 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 RUBEZH STRAZH.");
+          return;
+        }
+        const response = await chrome.runtime.sendMessage({ type: "PRINT_PASS", passType: type, employee });
+        if (!response?.ok) throw new Error(response?.error || "\u0424\u043E\u043D\u043E\u0432\u044B\u0439 \u043F\u0440\u043E\u0446\u0435\u0441\u0441 \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043D\u0438\u044F \u043D\u0435 \u043E\u0442\u0432\u0435\u0442\u0438\u043B.");
+      } catch (error) {
+        const message = String(error);
+        if (/context invalidated|receiving end does not exist/iu.test(message)) alert("\u0420\u0430\u0441\u0448\u0438\u0440\u0435\u043D\u0438\u0435 \u0431\u044B\u043B\u043E \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u043E \u0438\u043B\u0438 \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0443\u0449\u0435\u043D\u043E. \u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0443 RUBEZH (Ctrl+R) \u0438 \u043D\u0430\u0436\u043C\u0438\u0442\u0435 \u043A\u043D\u043E\u043F\u043A\u0443 \u0435\u0449\u0451 \u0440\u0430\u0437.");
+        else alert(`\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u0440\u0435\u0434\u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430: ${message}`);
+      } finally {
+        button.removeAttribute("disabled");
       }
-      await chrome.runtime.sendMessage({ type: "PRINT_PASS", passType: type, employee });
     });
     return button;
   }
