@@ -27,17 +27,20 @@ test('Windows bridge uses the color panel and starts SmartComm printing',()=>{
   assert.match(source,/Format24bppRgb/);
   assert.match(source,/DrawImage\(\$handle, 0, 1,/);
   assert.match(source,/DrawImage\(\$handle, 0, 2,/);
-  assert.doesNotMatch(source,/SetJobColorDensity/);
+  assert.match(source,/SetJobColorDensity\(\$handle, \$colorDensity\)/);
+  assert.match(source,/return 30/);
   assert.match(source,/bridge\.log/);
   assert.match(source,/\[SmartSdk\]::Print\(\$handle\)/);
 });
 
-test('card renderer uses bold K text and software-only color correction',()=>{
+test('card renderer uses requested Arial point sizes and regular weight',()=>{
   const source=fs.readFileSync(new URL('../extension-ts/renderer.ts',import.meta.url),'utf8');
-  assert.match(source,/contrast\(1\.08\) saturate\(1\.10\)/);
-  assert.match(source,/text\(ctx,e\.surname,x,123,w,39,700\)/);
-  assert.match(source,/ctx\.font='700 35px Arial'/);
-  assert.match(source,/ctx\.font='700 39px Arial'/);
+  assert.match(source,/ctx\.font='400 83px Arial'/);
+  assert.match(source,/fillText\(ORGANIZATION,506,42,970\)/);
+  assert.match(source,/text\(ctx,e\.surname,x,123,w,58\)/);
+  assert.match(source,/fontSize:50/);
+  assert.match(source,/ctx\.font='400 58px Arial'/);
+  assert.doesNotMatch(source,/contrast\(/);
 });
 
 test('Windows PowerShell scripts remain ASCII-compatible',()=>{
