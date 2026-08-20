@@ -1,7 +1,10 @@
 import type{EmployeeData,PassType}from'./types.js';import{normalizePosition}from'./positionNormalizer.js';
 export const CARD={widthPx:1012,heightPx:638,widthMm:85.6,heightMm:54,dpi:300};
 const asset=(name:string)=>chrome.runtime.getURL(`src/assets/${name}`),ORGANIZATION='ММЦ ФГБУЗ ЮОМЦ ФМБА России';
-const COLOR_FILTER='brightness(0.90) contrast(1.18) saturate(1.12)';
+// Software-only correction for the SMART-51 YMCK color panel. Keep this out of
+// the bridge so print sequencing, ribbon handling and driver settings remain
+// exactly as prescribed by SmartComm.
+const COLOR_FILTER='brightness(0.98) contrast(1.30) saturate(1.30)';
 const load=(src:string)=>new Promise<HTMLImageElement>((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=reject;image.src=src});
 function cover(ctx:CanvasRenderingContext2D,image:HTMLImageElement,x:number,y:number,w:number,h:number){const scale=Math.max(w/image.naturalWidth,h/image.naturalHeight),sw=w/scale,sh=h/scale;ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(image,(image.naturalWidth-sw)/2,(image.naturalHeight-sh)/2,sw,sh,x,y,w,h)}
 function text(ctx:CanvasRenderingContext2D,value:string,x:number,y:number,maxWidth:number,size:number,weight=400){let px=size;while(px>18){ctx.font=`${weight} ${px}px Arial`;if(ctx.measureText(value).width<=maxWidth)break;px--}ctx.fillText(value,x,y)}

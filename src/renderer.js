@@ -1,7 +1,10 @@
 import { normalizePosition } from './positionNormalizer.js';
 export const CARD = { widthPx: 1012, heightPx: 638, widthMm: 85.6, heightMm: 54, dpi: 300 };
 const asset = (name) => chrome.runtime.getURL(`src/assets/${name}`), ORGANIZATION = 'ММЦ ФГБУЗ ЮОМЦ ФМБА России';
-const COLOR_FILTER = 'brightness(0.90) contrast(1.18) saturate(1.12)';
+// Software-only correction for the SMART-51 YMCK color panel. Keep this out of
+// the bridge so print sequencing, ribbon handling and driver settings remain
+// exactly as prescribed by SmartComm.
+const COLOR_FILTER = 'brightness(0.98) contrast(1.30) saturate(1.30)';
 const load = (src) => new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = reject; image.src = src; });
 function cover(ctx, image, x, y, w, h) { const scale = Math.max(w / image.naturalWidth, h / image.naturalHeight), sw = w / scale, sh = h / scale; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(image, (image.naturalWidth - sw) / 2, (image.naturalHeight - sh) / 2, sw, sh, x, y, w, h); }
 function text(ctx, value, x, y, maxWidth, size, weight = 400) { let px = size; while (px > 18) {
