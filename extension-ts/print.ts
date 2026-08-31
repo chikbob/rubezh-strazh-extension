@@ -43,19 +43,40 @@ async function main(){
  const selectPhotoButton=document.querySelector<HTMLButtonElement>('#select-photo')!;
  const photoInput=document.querySelector<HTMLInputElement>('#photo-file')!;
  const photoName=document.querySelector<HTMLElement>('#photo-name')!;
+ const identifierStep=document.querySelector<HTMLElement>('#identifier-step')!;
+ const identifierSelect=document.querySelector<HTMLSelectElement>('#identifier-select')!;
  let panels:CardPanels|undefined;
  let isBusy=false;
  if(!payload){status.textContent='Данные пропуска не найдены.';return}
 
  const requiresPhoto=payload.type==='employee'||payload.type==='mosn';
- const employeeWithoutPhoto:EmployeeData={...payload.employee,photo:undefined};
+ const identifiers=Array.from(new Set((payload.employee.identifiers?.length?payload.employee.identifiers:[payload.employee.passNumber]).filter((v):v is string=>Boolean(v))));
+ let selectedIdentifier=identifiers[0];
+ let selectedPhoto:EmployeePhoto|undefined;
+ const employeeForRender=()=>({...payload.employee,photo:selectedPhoto,passNumber:selectedIdentifier}); // photo:undefined is used for the initial no-photo render
  const setControlsBusy=(busy:boolean)=>{
   isBusy=busy;
   cancelButton.disabled=busy;
   selectPhotoButton.disabled=busy;
   photoInput.disabled=busy;
+  identifierSelect.disabled=busy;
   printButton.disabled=busy||!panels;
  };
+
+ if(identifiers.length>1){
+  identifierStep.hidden=false;
+  for(const id of identifiers){const option=document.createElement('option');option.value=id;option.textContent=id;identifierSelect.append(option)}
+  identifierSelect.value=selectedIdentifier||'';
+ }
+ const rerender=async()=>{
+  panels=undefined; setControlsBusy(true);
+  const employee=employeeForRender();
+  const dataUrl=await renderCard(payload.type,employee);
+  await setPreview(image,dataUrl);
+ if(!requiresPhoto||selectedPhoto) panels=await renderCardPanels(payload.type,employee);
+  setControlsBusy(false);
+ };
+ identifierSelect.addEventListener('change',async()=>{selectedIdentifier=identifierSelect.value;try{await rerender();status.textContent=requiresPhoto&&!selectedPhoto?'Выберите исходный файл фотографии. До этого печать недоступна.':'Проверьте данные и нажмите «Печать».'}catch(error){status.textContent=`Ошибка формирования пропуска: ${String(error)}`;setControlsBusy(false)}});
 
  cancelButton.addEventListener('click',async()=>{await chrome.storage.session.remove('printPayload');window.close()});
  selectPhotoButton.addEventListener('click',()=>{
@@ -66,15 +87,12 @@ async function main(){
  photoInput.addEventListener('change',async()=>{
   const file=photoInput.files?.[0];
   if(!file)return;
-  panels=undefined;
   setControlsBusy(true);
   status.textContent='Добавление фотографии в пропуск…';
   try{
    const photo=await readPhoto(file);
-   const employee={...employeeWithoutPhoto,photo};
-   const[dataUrl,nextPanels]=await Promise.all([renderCard(payload.type,employee),renderCardPanels(payload.type,employee)]);
-   await setPreview(image,dataUrl);
-   panels=nextPanels;
+   selectedPhoto=photo;
+   await rerender();
    photoName.textContent=file.name;
    selectPhotoButton.textContent='Заменить фото';
    status.textContent='Фото добавлено. Проверьте пропуск и нажмите «Печать».';
@@ -102,13 +120,13 @@ async function main(){
  try{
   document.title=`Пропуск — ${payload.employee.fullName}`;
   status.textContent=requiresPhoto?'Формирование пропуска без фотографии…':'Формирование пропуска…';
-  await setPreview(image,await renderCard(payload.type,employeeWithoutPhoto));
+  await setPreview(image,await renderCard(payload.type,employeeForRender()));
   if(requiresPhoto){
    selectPhotoButton.hidden=false;
    photoName.hidden=false;
    status.textContent='Выберите исходный файл фотографии. До этого печать недоступна.';
   }else{
-   panels=await renderCardPanels(payload.type,employeeWithoutPhoto);
+   panels=await renderCardPanels(payload.type,employeeForRender());
    status.textContent='Проверьте данные и нажмите «Печать».';
    printButton.disabled=false;
   }

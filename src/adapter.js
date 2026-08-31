@@ -98,17 +98,16 @@ export class RubezhAdapter {
         if (p)
             return p;
     } return null; }
-    async getEmployeeData() { const value = (k) => clean(findByLabel(FIELD_LABELS[k])?.value || ''); const surname = value('surname'), name = value('name'), patronymic = value('patronymic'), visitor = isVisitorPage(), comment = visitor ? (visitorComment() || value('comment')) : value('comment'), position = value('position') || (visitor ? comment : ''); let passNumber; for (const root of allRoots())
+    async getEmployeeData() { const value = (k) => clean(findByLabel(FIELD_LABELS[k])?.value || ''); const surname = value('surname'), name = value('name'), patronymic = value('patronymic'), visitor = isVisitorPage(), comment = visitor ? (visitorComment() || value('comment')) : value('comment'), position = value('position') || (visitor ? comment : ''); const identifiers = []; const pattern = /(?:^|\D)(\d{6,12})\s*[-–—−]?\s*уровень\s*\d*/giu; for (const root of allRoots())
         for (const node of Array.from(root.querySelectorAll('a,span,div,td'))) {
             if (node.children.length > 2)
                 continue;
-            const match = clean(node.textContent || '').match(/(?:^|\D)(\d{6,12})\s*[-–—−]?\s*уровень\s*\d*/iu);
-            if (match) {
-                passNumber = match[1];
-                break;
-            }
-        } if (!passNumber) {
-        const body = clean(document.body.innerText);
-        passNumber = body.match(/(?:^|\D)(\d{6,12})\s*[-–—−]?\s*уровень\s*\d*/iu)?.[1];
-    } return { surname, name, patronymic, fullName: clean([surname, name, patronymic].filter(Boolean).join(' ')), employeeNumber: value('employeeNumber'), passNumber, position, department: value('department'), comment, accessProfile: value('accessProfile'), personalEntryPoint: value('personalEntryPoint'), loginUser: value('loginUser'), pin: value('pin'), vehicleNumber: value('vehicleNumber'), photo: await this.getPhoto() || undefined }; }
+            for (const match of clean(node.textContent || '').matchAll(pattern))
+                if (!identifiers.includes(match[1]))
+                    identifiers.push(match[1]);
+        } if (!identifiers.length) {
+        for (const match of clean(document.body.innerText).matchAll(pattern))
+            if (!identifiers.includes(match[1]))
+                identifiers.push(match[1]);
+    } const passNumber = identifiers[0]; return { surname, name, patronymic, fullName: clean([surname, name, patronymic].filter(Boolean).join(' ')), employeeNumber: value('employeeNumber'), passNumber, identifiers, position, department: value('department'), comment, accessProfile: value('accessProfile'), personalEntryPoint: value('personalEntryPoint'), loginUser: value('loginUser'), pin: value('pin'), vehicleNumber: value('vehicleNumber'), photo: await this.getPhoto() || undefined }; }
 }

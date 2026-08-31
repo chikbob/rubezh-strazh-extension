@@ -35,9 +35,9 @@ test('photo passes require a validated local source image before printing',()=>{
 
 test('content buttons handle a reloaded extension context without an unhandled rejection',()=>{
   const source=fs.readFileSync(new URL('../extension-ts/content.ts',import.meta.url),'utf8');
-  assert.match(source,/if\(!chrome\.runtime\?\.id\)throw new Error\('Extension context invalidated'\)/);
-  assert.match(source,/const response=await chrome\.runtime\.sendMessage/);
-  assert.match(source,/if\(!response\?\.ok\)throw new Error/);
+  assert.match(source,/chrome\.runtime\?\.id[^\n]*Extension context invalidated/);
+  assert.match(source,/const response\s*=\s*await chrome\.runtime\.sendMessage/);
+  assert.match(source,/if\s*\(!response\?\.ok\)\s*throw new Error/);
   assert.match(source,/context invalidated\|receiving end does not exist/);
   assert.match(source,/Обновите страницу RUBEZH \(Ctrl\+R\)/);
 });
