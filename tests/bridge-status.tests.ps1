@@ -60,8 +60,9 @@ public static class FakeSmartSdk {
         type = 2; maximum = 350; remaining = 310; grade = 1; return 0;
     }
     public static uint DrawImage(IntPtr handle, byte page, byte panel, int x, int y, int width, int height, IntPtr path, IntPtr area) {
-        if (panel == 1 && (x != 0 || y != 84 || width != 440 || height != 554)) throw new Exception("Color bounds mismatch");
+        if (panel == 1 && (x != 0 || y != 0 || width != 1012 || height != 638)) throw new Exception("Color bounds mismatch");
         if (panel == 2 && (x != 0 || y != 0 || width != 1012 || height != 638)) throw new Exception("Black bounds mismatch");
+        Marshal.StructureToPtr(new RECT { Left = x, Top = y, Right = x + width, Bottom = y + height }, area, false);
         return FailAt == "black" && panel == 2 ? 1u : 0u;
     }
     public static uint Print(IntPtr handle) { Printed++; return 0; }

@@ -137,6 +137,7 @@ function Convert-ToOpaqueBitmap([string]$dataUrl, [string]$name, [int]$width, [i
             try { $graphics.Clear([Drawing.Color]::White); $graphics.DrawImageUnscaled($source, 0, 0) } finally { $graphics.Dispose() }
             $bitmap.SetResolution(300, 300)
             $bitmap.Save($bmpPath, [Drawing.Imaging.ImageFormat]::Bmp)
+            Write-BridgeLog "Panel prepared: name=$name size=$width x $height dpi=300 format=24bppRgb"
         } finally { $bitmap.Dispose() }
     } catch {
         Remove-Item $bmpPath -Force -ErrorAction SilentlyContinue
@@ -154,7 +155,7 @@ function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
     $blackPtr = [IntPtr]::Zero
     $rectPtr = [IntPtr]::Zero
     try {
-        $colorPath = Convert-ToOpaqueBitmap $colorDataUrl 'rubezh-color' 440 554
+        $colorPath = Convert-ToOpaqueBitmap $colorDataUrl 'rubezh-color' 1012 638
         $blackPath = Convert-ToOpaqueBitmap $blackDataUrl 'rubezh-black' 1012 638
         $printer = Get-SmartPrinter
         $devicePtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($printer)
@@ -178,12 +179,16 @@ function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
         $rect = New-Object SmartSdk+RECT
         $rectPtr = [Runtime.InteropServices.Marshal]::AllocHGlobal([Runtime.InteropServices.Marshal]::SizeOf($rect))
         [Runtime.InteropServices.Marshal]::StructureToPtr($rect, $rectPtr, $false)
-        # PAGE_FRONT=0, PANEL_COLOR=1. Explicit half-card color bounds;
-        # K remains full-card. Coordinates are SDK pixels at 300 dpi.
-        $result = [SmartSdk]::DrawImage($handle, 0, 1, 0, 84, 440, 554, $colorPtr, $rectPtr)
+        # Both inputs cover the full card with an explicit white background.
+        # The driver/profile handles hYMCKO; do not crop the SDK color surface.
+        $result = [SmartSdk]::DrawImage($handle, 0, 1, 0, 0, 1012, 638, $colorPtr, $rectPtr)
         if ($result -ne 0) { throw "SmartComm could not draw the color panel (code $result)." }
+        $drawn = [Runtime.InteropServices.Marshal]::PtrToStructure($rectPtr, [type][SmartSdk+RECT])
+        Write-BridgeLog "Color drawing: left=$($drawn.Left) top=$($drawn.Top) right=$($drawn.Right) bottom=$($drawn.Bottom)"
         $result = [SmartSdk]::DrawImage($handle, 0, 2, 0, 0, 1012, 638, $blackPtr, $rectPtr)
         if ($result -ne 0) { throw "SmartComm could not draw the black panel (code $result)." }
+        $drawn = [Runtime.InteropServices.Marshal]::PtrToStructure($rectPtr, [type][SmartSdk+RECT])
+        Write-BridgeLog "Black drawing: left=$($drawn.Left) top=$($drawn.Top) right=$($drawn.Right) bottom=$($drawn.Bottom)"
         $result = [SmartSdk]::Print($handle)
         if ($result -ne 0) { throw "SmartComm rejected the print job (code $result)." }
         Write-BridgeLog "Print accepted by SmartComm: result=$result ribbonType=$ribbonType ribbonRemaining=$ribbonRemaining"
@@ -249,7 +254,7 @@ while ($true) {
         if ($requestLine -match '^OPTIONS ') {
             Send-Response $stream 200 '{"ok":true}'
         } elseif ($requestLine -match '^GET /health ') {
-            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 2 } | ConvertTo-Json -Compress)
+            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 3 } | ConvertTo-Json -Compress)
         } elseif ($requestLine -match '^POST /print ' -and $contentLength -gt 0 -and $contentLength -le 16777216) {
             $chars = New-Object char[] $contentLength
             $read = 0

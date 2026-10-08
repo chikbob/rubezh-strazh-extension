@@ -7,7 +7,7 @@ type CardPanels=Awaited<ReturnType<typeof renderCardPanels>>;
 
 async function directPrint(colorImageDataUrl:string,blackImageDataUrl:string,jobId:string){
  const health=await fetch(`${BRIDGE}/health`).then(response=>response.json());
- if(health.protocolVersion!==2)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии, когда принтер не печатает. Старый мост не используется.');
+ if(health.protocolVersion!==3)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии, когда принтер не печатает. Старый мост не используется.');
  const response=await fetch(`${BRIDGE}/print`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({colorImageDataUrl,blackImageDataUrl,jobId})});
  const result=await response.json() as{ok?:boolean;error?:string;printer?:string};
  if(!response.ok||!result.ok)throw new Error(result.error||`Ошибка моста печати (${response.status})`);

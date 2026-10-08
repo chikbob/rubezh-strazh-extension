@@ -8,7 +8,7 @@ const code=ts.transpileModule(fs.readFileSync(new URL('../extension-ts/print.ts'
 async function preview(type='temporary'){
  const dom=new JSDOM(fs.readFileSync(new URL('../src/print.html',import.meta.url),'utf8'),{url:'https://extension.test/print.html?payload=printPayload-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',runScripts:'outside-only'});
  const w=dom.window,rendered=[],requests=[];
- let snapshot=structuredClone(employee),protocolVersion=2;
+ let snapshot=structuredClone(employee),protocolVersion=3;
  w.HTMLImageElement.prototype.decode=async()=>{};
  w.renderCard=async(type,data)=>{rendered.push(structuredClone(data));return 'data:image/png;base64,AA=='};
  w.renderCardPanels=async()=>({colorImageDataUrl:'color',blackImageDataUrl:'black'});
@@ -46,7 +46,7 @@ test('employee and MOSN require a source photo; temporary does not',async()=>{
   assert.equal(p.rendered.every(data=>!data.photo),true);p.dom.window.close();
  }
 });
-test('old bridge is never sent cropped panel data',async()=>{
- const p=await preview();p.setProtocol(1);p.w.document.querySelector('#confirm-print').click();await waitFor(()=>p.requests.length===1);await settle();
+test('old bridge is never sent incompatible full-card panel data',async()=>{
+ const p=await preview();p.setProtocol(2);p.w.document.querySelector('#confirm-print').click();await waitFor(()=>p.requests.length===1);await settle();
  assert.ok(p.requests[0].url.endsWith('/health'));assert.equal(p.w.document.querySelector('#confirm-print').disabled,true);p.dom.window.close();
 });

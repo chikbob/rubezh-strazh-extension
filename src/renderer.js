@@ -90,12 +90,9 @@ async function renderLayer(type, e, layer) {
 }
 export async function renderCard(type, e) { return renderLayer(type, e, 'composite'); }
 export async function renderCardPanels(type, e) {
-    const [colorLayer, blackImageDataUrl] = await Promise.all([renderLayer(type, e, 'color'), renderLayer(type, e, 'black')]);
-    // Only this area contains YMC ink. Do not ask hYMCKO half-length color
-    // panels to carry a full-card image whose right half is merely white.
-    const color = await load(colorLayer), canvas = document.createElement('canvas');
-    canvas.width = 440;
-    canvas.height = 554;
-    canvas.getContext('2d').drawImage(color, 0, 84, 440, 554, 0, 0, 440, 554);
-    return { colorImageDataUrl: canvas.toDataURL('image/png'), blackImageDataUrl };
+    // Send an explicitly white full-card surface for each panel. The half-ribbon
+    // format belongs to the printer profile, not the input bitmap dimensions.
+    // Cropping the SDK input was followed by a yellow-band regression on hardware.
+    const [colorImageDataUrl, blackImageDataUrl] = await Promise.all([renderLayer(type, e, 'color'), renderLayer(type, e, 'black')]);
+    return { colorImageDataUrl, blackImageDataUrl };
 }
