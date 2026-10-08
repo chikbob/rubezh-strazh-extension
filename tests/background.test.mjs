@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {webcrypto} from 'node:crypto';
+import ts from 'typescript';
+test('concurrent preview windows keep independent payloads and source tabs',async()=>{
+ const stored={},windows=[];let listener;
+ const chrome={runtime:{onMessage:{addListener:fn=>{listener=fn}},getURL:url=>'https://extension.test/'+url},storage:{session:{set:async value=>Object.assign(stored,value),remove:async key=>{delete stored[key]}}},windows:{create:async options=>{windows.push(options)}}};
+ const source=fs.readFileSync(new URL('../extension-ts/background.ts',import.meta.url),'utf8').replace(/^import.*\n/gm,'');
+ vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText,{chrome,crypto:webcrypto});
+ const send=(fullName,tab)=>new Promise(resolve=>listener({type:'PRINT_PASS',passType:'employee',employee:{fullName}},{tab:{id:tab}},resolve));
+ const results=await Promise.all([send('Первый',42),send('Второй',43)]);
+ assert.ok(results.every(result=>result.ok));assert.equal(windows.length,2);
+ const keys=windows.map(options=>new URL(options.url).searchParams.get('payload'));assert.notEqual(keys[0],keys[1]);
+ assert.equal(stored[keys[0]].employee.fullName,'Первый');assert.equal(stored[keys[1]].employee.fullName,'Второй');
+ assert.equal(stored[keys[0]].sourceTabId,42);assert.equal(stored[keys[1]].sourceTabId,43);
+ chrome.windows.create=async()=>{throw new Error('Window unavailable')};
+ const failed=await send('Третий',44);assert.equal(failed.ok,false);assert.equal(Object.keys(stored).length,2);
+});

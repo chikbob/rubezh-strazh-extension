@@ -23,11 +23,11 @@ test('print preview requires explicit confirmation and offers cancellation',()=>
 test('photo passes require a validated local source image before printing',()=>{
   const source=fs.readFileSync(new URL('../extension-ts/print.ts',import.meta.url),'utf8');
   const html=fs.readFileSync(new URL('../src/print.html',import.meta.url),'utf8');
-  assert.match(source,/photo:undefined/);
+  assert.match(source,/photo:selectedPhoto/);
   assert.match(source,/payload\.type==='employee'\|\|payload\.type==='mosn'/);
   assert.match(source,/ALLOWED_IMAGE_TYPES/);
   assert.match(source,/readAsDataURL\(file\)/);
-  assert.match(source,/if\(isBusy\|\|!panels\)return/);
+  assert.match(source,/if\(isBusy\|\|!panels\|\|printAttempted\)return/);
   assert.match(source,/renderCardPanels\(payload\.type,employee\)/);
   assert.match(html,/id="photo-file"[^>]*type="file"[^>]*accept="image\/jpeg,image\/png,image\/webp,image\/bmp,\.bmp"/);
   assert.match(html,/id="select-photo"/);
@@ -49,9 +49,9 @@ test('Windows bridge uses the color panel and starts SmartComm printing',()=>{
   assert.match(source,/Format24bppRgb/);
   assert.match(source,/DrawImage\(\$handle, 0, 1,/);
   assert.match(source,/DrawImage\(\$handle, 0, 2,/);
-  assert.match(source,/SetJobMainDensity\(\$handle, 30\)/);
-  assert.match(source,/RestoreJobMainDensity\(\$handle, \$originalMainDensity\)/);
-  assert.doesNotMatch(source,/SetPanelDensity|color-density\.txt/);
+  assert.match(source,/DrawImage\(\$handle, 0, 1, 0, 84, 440, 554,/);
+  assert.match(source,/WaitForCompletion\(\$handle\)/);
+  assert.doesNotMatch(source,/SetPanelDensity|SetPrinterSettings|SetJobMainDensity|RestoreJobMainDensity/);
   assert.match(source,/SmartComm_GetRibbonInfo/);
   assert.match(source,/ribbonType=\$ribbonType/);
   assert.match(source,/bridge\.log/);

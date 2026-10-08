@@ -1,6 +1,12 @@
 import { RubezhAdapter } from './adapter.js'; import type { PassType } from './types.js';
+import {isVisible} from './identifiers.js';
 const adapter = new RubezhAdapter(), MARK = 'data-rubezh-pass-button';
 const passes: [PassType, string, string][] = [['employee', 'С', 'Печать пропуска сотрудника'], ['mosn', 'М', 'Печать пропуска МОСН'], ['temporary', 'В', 'Печать временного пропуска']];
+chrome.runtime.onMessage.addListener((message: any, _sender: any, reply: (value: any) => void) => {
+    if (message.type !== 'READ_CURRENT_CARD') return false;
+    adapter.getEmployeeData().then(employee => reply({ok:true,employee})).catch(error => reply({ok:false,error:String(error)}));
+    return true;
+});
 
 function roots(): ParentNode[] { const result: ParentNode[] = [document]; for (const element of Array.from(document.querySelectorAll('*'))) if (element.shadowRoot) result.push(element.shadowRoot); return result }
 function isPersonalDataTitle(element: Element) { return /^личные данные (?:сотрудника|посетителя)$/iu.test((element.textContent || '').replace(/\s+/g, ' ').trim()) }
@@ -10,10 +16,10 @@ function findSaveButton(): HTMLElement | null {
     // Heuristics based on a neighbouring Delete button are unsafe: the same
     // action pattern occurs in tables, identifier lists and biometric controls.
     for (const root of roots()) {
-        const exact = root.querySelector<HTMLElement>('button#save_employee_btn,button#save_visitor_btn');
+        const exact = Array.from(root.querySelectorAll<HTMLElement>('button#save_employee_btn,button#save_visitor_btn')).find(isVisible);
         if (exact) return exact;
         for (const title of Array.from(root.querySelectorAll('h1,h2,h3,h4,h5,h6'))) {
-            if (!isPersonalDataTitle(title)) continue;
+            if (!isPersonalDataTitle(title)||!isVisible(title)) continue;
             const header = title.closest('.card-header,.panel-heading,header') || title.parentElement;
             const contextual = header && saveButtonInHeader(header);
             if (contextual) return contextual;

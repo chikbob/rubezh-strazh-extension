@@ -5,8 +5,10 @@ const BRIDGE='http://127.0.0.1:18451';
 const ALLOWED_IMAGE_TYPES=new Set(['image/jpeg','image/png','image/webp','image/bmp']);
 type CardPanels=Awaited<ReturnType<typeof renderCardPanels>>;
 
-async function directPrint(colorImageDataUrl:string,blackImageDataUrl:string){
- const response=await fetch(`${BRIDGE}/print`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({colorImageDataUrl,blackImageDataUrl})});
+async function directPrint(colorImageDataUrl:string,blackImageDataUrl:string,jobId:string){
+ const health=await fetch(`${BRIDGE}/health`).then(response=>response.json());
+ if(health.protocolVersion!==2)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии, когда принтер не печатает. Старый мост не используется.');
+ const response=await fetch(`${BRIDGE}/print`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({colorImageDataUrl,blackImageDataUrl,jobId})});
  const result=await response.json() as{ok?:boolean;error?:string;printer?:string};
  if(!response.ok||!result.ok)throw new Error(result.error||`Ошибка моста печати (${response.status})`);
  return result;
@@ -34,8 +36,9 @@ async function setPreview(image:HTMLImageElement,dataUrl:string){
 }
 
 async function main(){
- const stored=await chrome.storage.session.get('printPayload');
- const payload=stored.printPayload as{employee:EmployeeData;type:PassType}|undefined;
+ const payloadKey=new URLSearchParams(location.search).get('payload')||'printPayload';
+ const stored=await chrome.storage.session.get(payloadKey);
+ const payload=stored[payloadKey] as{employee:EmployeeData;type:PassType;sourceTabId:number}|undefined;
  const status=document.querySelector<HTMLElement>('#status')!;
  const image=document.querySelector<HTMLImageElement>('#card')!;
  const printButton=document.querySelector<HTMLButtonElement>('#confirm-print')!;
@@ -47,27 +50,32 @@ async function main(){
  const identifierSelect=document.querySelector<HTMLSelectElement>('#identifier-select')!;
  let panels:CardPanels|undefined;
  let isBusy=false;
+ let printAttempted=false;
  if(!payload){status.textContent='Данные пропуска не найдены.';return}
 
  const requiresPhoto=payload.type==='employee'||payload.type==='mosn';
- const identifiers=Array.from(new Set((payload.employee.identifiers?.length?payload.employee.identifiers:[payload.employee.passNumber]).filter((v):v is string=>Boolean(v))));
+ let identifiers=Array.from(new Set(payload.employee.identifiers||[]));
+ let currentCardAvailable=false;
  let selectedIdentifier=identifiers[0];
  let selectedPhoto:EmployeePhoto|undefined;
- const employeeForRender=()=>({...payload.employee,photo:selectedPhoto,passNumber:selectedIdentifier}); // photo:undefined is used for the initial no-photo render
+ const employeeForRender=()=>({...payload.employee,photo:selectedPhoto,passNumber:selectedIdentifier});
  const setControlsBusy=(busy:boolean)=>{
   isBusy=busy;
   cancelButton.disabled=busy;
   selectPhotoButton.disabled=busy;
   photoInput.disabled=busy;
   identifierSelect.disabled=busy;
-  printButton.disabled=busy||!panels;
+  printButton.disabled=busy||!panels||!selectedIdentifier||!currentCardAvailable||printAttempted;
  };
 
- if(identifiers.length>1){
+ const updateIdentifierOptions=()=>{
   identifierStep.hidden=false;
+  identifierSelect.replaceChildren();
   for(const id of identifiers){const option=document.createElement('option');option.value=id;option.textContent=id;identifierSelect.append(option)}
+  if(!identifiers.length){const option=document.createElement('option');option.textContent='В текущей карточке нет идентификаторов';option.value='';identifierSelect.append(option)}
   identifierSelect.value=selectedIdentifier||'';
- }
+ };
+ updateIdentifierOptions();
  const rerender=async()=>{
   panels=undefined; setControlsBusy(true);
   const employee=employeeForRender();
@@ -78,7 +86,24 @@ async function main(){
  };
  identifierSelect.addEventListener('change',async()=>{selectedIdentifier=identifierSelect.value;try{await rerender();status.textContent=requiresPhoto&&!selectedPhoto?'Выберите исходный файл фотографии. До этого печать недоступна.':'Проверьте данные и нажмите «Печать».'}catch(error){status.textContent=`Ошибка формирования пропуска: ${String(error)}`;setControlsBusy(false)}});
 
- cancelButton.addEventListener('click',async()=>{await chrome.storage.session.remove('printPayload');window.close()});
+ const refreshIdentifiers=async()=>{
+  try{
+   const result=await chrome.tabs.sendMessage(payload.sourceTabId,{type:'READ_CURRENT_CARD'}) as {ok:boolean;employee:EmployeeData};
+   if(!result?.ok||result.employee.fullName!==payload.employee.fullName||result.employee.employeeNumber!==payload.employee.employeeNumber)throw new Error('Исходная карточка закрыта или открыта для другого человека.');
+   const next=Array.from(new Set(result.employee.identifiers||[]));
+   const changed=!currentCardAvailable||JSON.stringify(next)!==JSON.stringify(identifiers);
+   currentCardAvailable=true;
+   if(changed){
+    identifiers=next;
+    if(!selectedIdentifier||!identifiers.includes(selectedIdentifier))selectedIdentifier=identifiers[0];
+    updateIdentifierOptions();
+    await rerender();
+    status.textContent=!selectedIdentifier?'Добавьте идентификатор в карточку RUBEZH. Он появится здесь автоматически.':requiresPhoto&&!selectedPhoto?'Выберите исходный файл фотографии. До этого печать недоступна.':'Идентификаторы обновлены. Проверьте пропуск и нажмите «Печать».';
+   }
+   return !changed;
+  }catch(error){currentCardAvailable=false;setControlsBusy(false);status.textContent=`Не удалось проверить текущую карточку. Вернитесь к ней в RUBEZH. ${String(error)}`;return false}
+ };
+ cancelButton.addEventListener('click',async()=>{await chrome.storage.session.remove(payloadKey);window.close()});
  selectPhotoButton.addEventListener('click',()=>{
   if(isBusy)return;
   photoInput.value='';
@@ -102,17 +127,20 @@ async function main(){
   }finally{setControlsBusy(false)}
  });
  printButton.addEventListener('click',async()=>{
-  if(isBusy||!panels)return;
+  if(isBusy||!panels||printAttempted)return;
   setControlsBusy(true);
-  status.textContent='Отправка на IDP SMART…';
+  if(!await refreshIdentifiers()||!currentCardAvailable||!selectedIdentifier){setControlsBusy(false);return}
+  setControlsBusy(true);
+  printAttempted=true;
+  status.textContent='Печать на IDP SMART… Дождитесь завершения задания.';
   try{
-   const result=await directPrint(panels.colorImageDataUrl,panels.blackImageDataUrl);
-   status.textContent=`Задание отправлено на ${result.printer||'IDP SMART'}.`;
-   await chrome.storage.session.remove('printPayload');
+   const result=await directPrint(panels.colorImageDataUrl,panels.blackImageDataUrl,payloadKey);
+   status.textContent=`Печать завершена на ${result.printer||'IDP SMART'}.`;
+   await chrome.storage.session.remove(payloadKey);
    window.setTimeout(()=>window.close(),900);
   }catch(error){
    const message=String(error);
-   status.textContent=message.includes('Failed to fetch')?`Print Bridge не отвечает. Повторно запустите bridge\\install.cmd. (${message})`:`Ошибка IDP SMART: ${message}`;
+   status.textContent=`Печать не подтверждена. Проверьте дисплей принтера и карточку; не отправляйте её повторно вслепую. ${message}`;
    setControlsBusy(false);
   }
  });
@@ -128,8 +156,10 @@ async function main(){
   }else{
    panels=await renderCardPanels(payload.type,employeeForRender());
    status.textContent='Проверьте данные и нажмите «Печать».';
-   printButton.disabled=false;
+   setControlsBusy(false);
   }
+  await refreshIdentifiers();
+  window.setInterval(()=>{if(!isBusy&&!printAttempted)void refreshIdentifiers()},2000);
  }catch(error){status.textContent=`Ошибка формирования пропуска: ${String(error)}`}
 }
 

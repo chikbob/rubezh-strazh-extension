@@ -21,12 +21,47 @@
   var ACTIONS = ['button[title*="\u0441\u043E\u0445\u0440\u0430\u043D" i]', 'button[aria-label*="\u0441\u043E\u0445\u0440\u0430\u043D" i]', "button:has(.fa-save)", "button:has(.fa-floppy-o)", "button:has(.glyphicon-floppy-disk)", "button:has(.glyphicon-floppy-save)", 'button:has([class*="save"])', 'button[type="submit"]'];
   var ACTION_SELECTORS = VIEW_ROOTS.flatMap((root) => ACTIONS.map((action) => `${root} ${action}`));
 
+  // extension-ts/identifiers.ts
+  var normalize = (text) => text.replace(/\s+/g, " ").trim();
+  function isVisible(element) {
+    for (let node = element; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (node.hasAttribute("hidden") || node.getAttribute("aria-hidden") === "true" || style.display === "none" || style.visibility === "hidden") return false;
+    }
+    return element.getClientRects().length > 0;
+  }
+  function personalPanel() {
+    const headings = Array.from(document.querySelectorAll("h1,h2,h3,h4,h5,h6"));
+    const title = headings.find((node) => isVisible(node) && /^личные данные (сотрудника|посетителя)$/iu.test(normalize(node.textContent || "")));
+    return title?.closest(".panel,.card") || title?.parentElement?.parentElement || void 0;
+  }
+  function currentIdentifiers() {
+    const personal = personalPanel();
+    if (!personal) return [];
+    for (let container = personal.parentElement; container; container = container.parentElement) {
+      const headings = Array.from(container.querySelectorAll("h1,h2,h3,h4,h5,h6"));
+      const titles = headings.filter((node) => isVisible(node) && /^управление (картами|идентификаторами)$/iu.test(normalize(node.textContent || "")));
+      if (!titles.length) continue;
+      if (titles.length !== 1) return [];
+      const panel = titles[0].closest(".panel,.card") || titles[0].parentElement?.parentElement;
+      if (!panel) return [];
+      const ids = [];
+      for (const row of Array.from(panel.querySelectorAll("a,span,div,td,li"))) {
+        if (!isVisible(row) || Array.from(row.children).some((child) => /\d{6,12}\s*[-–—−]?\s*уровень/iu.test(child.textContent || ""))) continue;
+        const match = normalize(row.textContent || "").match(/^(\d{6,12})\s*[-–—−]?\s*уровень\s*\d+(?:\s*\([^)]*\))?$/iu);
+        if (match && !ids.includes(match[1])) ids.push(match[1]);
+      }
+      return ids;
+    }
+    return [];
+  }
+
   // extension-ts/adapter.ts
   var clean = (v) => v.replace(/\s+/g, " ").trim();
   function allRoots() {
-    const roots2 = [document];
+    const roots2 = [personalPanel() || document];
     document.querySelectorAll("*").forEach((e) => {
-      if (e.shadowRoot) roots2.push(e.shadowRoot);
+      if (e.shadowRoot && isVisible(e)) roots2.push(e.shadowRoot);
     });
     return roots2;
   }
@@ -145,17 +180,9 @@
     async getEmployeeData() {
       const value = (k) => clean(findByLabel(FIELD_LABELS[k])?.value || "");
       const surname = value("surname"), name = value("name"), patronymic = value("patronymic"), visitor = isVisitorPage(), comment = visitor ? visitorComment() || value("comment") : value("comment"), position = value("position") || (visitor ? comment : "");
-      const identifiers = [];
-      const pattern = /(?:^|\D)(\d{6,12})\s*[-–—−]?\s*уровень\s*\d*/giu;
-      for (const root of allRoots()) for (const node of Array.from(root.querySelectorAll("a,span,div,td"))) {
-        if (node.children.length > 2) continue;
-        for (const match of clean(node.textContent || "").matchAll(pattern)) if (!identifiers.includes(match[1])) identifiers.push(match[1]);
-      }
-      if (!identifiers.length) {
-        for (const match of clean(document.body.innerText).matchAll(pattern)) if (!identifiers.includes(match[1])) identifiers.push(match[1]);
-      }
+      const identifiers = currentIdentifiers();
       const passNumber = identifiers[0];
-      return { surname, name, patronymic, fullName: clean([surname, name, patronymic].filter(Boolean).join(" ")), employeeNumber: value("employeeNumber"), passNumber, identifiers, position, department: value("department"), comment, accessProfile: value("accessProfile"), personalEntryPoint: value("personalEntryPoint"), loginUser: value("loginUser"), pin: value("pin"), vehicleNumber: value("vehicleNumber"), photo: await this.getPhoto() || void 0 };
+      return { surname, name, patronymic, fullName: clean([surname, name, patronymic].filter(Boolean).join(" ")), employeeNumber: value("employeeNumber"), passNumber, identifiers, position, department: value("department"), comment, accessProfile: value("accessProfile"), personalEntryPoint: value("personalEntryPoint"), loginUser: value("loginUser"), pin: value("pin"), vehicleNumber: value("vehicleNumber") };
     }
   };
 
@@ -163,6 +190,11 @@
   var adapter = new RubezhAdapter();
   var MARK = "data-rubezh-pass-button";
   var passes = [["employee", "\u0421", "\u041F\u0435\u0447\u0430\u0442\u044C \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430"], ["mosn", "\u041C", "\u041F\u0435\u0447\u0430\u0442\u044C \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430 \u041C\u041E\u0421\u041D"], ["temporary", "\u0412", "\u041F\u0435\u0447\u0430\u0442\u044C \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E\u0433\u043E \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430"]];
+  chrome.runtime.onMessage.addListener((message, _sender, reply) => {
+    if (message.type !== "READ_CURRENT_CARD") return false;
+    adapter.getEmployeeData().then((employee) => reply({ ok: true, employee })).catch((error) => reply({ ok: false, error: String(error) }));
+    return true;
+  });
   function roots() {
     const result = [document];
     for (const element of Array.from(document.querySelectorAll("*"))) if (element.shadowRoot) result.push(element.shadowRoot);
@@ -176,10 +208,10 @@
   }
   function findSaveButton() {
     for (const root of roots()) {
-      const exact = root.querySelector("button#save_employee_btn,button#save_visitor_btn");
+      const exact = Array.from(root.querySelectorAll("button#save_employee_btn,button#save_visitor_btn")).find(isVisible);
       if (exact) return exact;
       for (const title of Array.from(root.querySelectorAll("h1,h2,h3,h4,h5,h6"))) {
-        if (!isPersonalDataTitle(title)) continue;
+        if (!isPersonalDataTitle(title) || !isVisible(title)) continue;
         const header = title.closest(".card-header,.panel-heading,header") || title.parentElement;
         const contextual = header && saveButtonInHeader(header);
         if (contextual) return contextual;

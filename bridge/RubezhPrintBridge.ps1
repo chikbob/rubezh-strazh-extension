@@ -27,11 +27,11 @@ public static class SmartSdk {
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_GetRibbonInfo")]
     public static extern uint GetRibbonInfo(IntPtr handle, ref int type, ref int maximum, ref int remaining, ref int grade);
 
-    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_GetPrinterSettings2")]
-    private static extern uint GetPrinterSettings2(IntPtr handle, IntPtr settings, ref int length);
+    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_GetStatus")]
+    private static extern uint GetStatus(IntPtr handle, IntPtr status);
 
-    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_SetPrinterSettings2")]
-    private static extern uint SetPrinterSettings2(IntPtr handle, IntPtr settings, int length);
+    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_GetDeviceInfo2")]
+    private static extern uint GetDeviceInfo2(IntPtr info, IntPtr device, int deviceType);
 
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_Print")]
     public static extern uint Print(IntPtr handle);
@@ -39,36 +39,48 @@ public static class SmartSdk {
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_CloseDevice")]
     public static extern uint CloseDevice(IntPtr handle);
 
-    // SMART51_DEVMODE.dwASMain from the vendor SDK. This is a per-job image
-    // processing value, not firmware panel calibration or ribbon control.
-    private const int Smart51MainDensityOffset = 796;
-
-    public static int SetJobMainDensity(IntPtr handle, int density) {
-        const int capacity = 16384;
-        IntPtr settings = Marshal.AllocHGlobal(capacity);
+    public static void ValidateDevice(IntPtr device) {
+        IntPtr info = Marshal.AllocHGlobal(4096);
         try {
-            int length = capacity;
-            uint result = GetPrinterSettings2(handle, settings, ref length);
-            if (result != 0) throw new InvalidOperationException("SmartComm could not read job settings (code " + result + ").");
-            if (length <= Smart51MainDensityOffset + 4) throw new InvalidOperationException("SmartComm returned unsupported SMART-51 job settings (" + length + " bytes).");
-            int original = Marshal.ReadInt32(settings, Smart51MainDensityOffset);
-            Marshal.WriteInt32(settings, Smart51MainDensityOffset, Math.Max(-100, Math.Min(100, density)));
-            result = SetPrinterSettings2(handle, settings, length);
-            if (result != 0) throw new InvalidOperationException("SmartComm could not apply temporary YMCK density (code " + result + ").");
-            return original;
-        } finally { Marshal.FreeHGlobal(settings); }
+            uint result = GetDeviceInfo2(info, device, 1);
+            if (result != 0) throw new InvalidOperationException("Cannot identify the printer (code " + result + ").");
+            // SMART_PRINTER_STANDARD: WCHAR name[128], id[64], dev[64],
+            // int dev_type, int pid. Read-only model check, never patch DEVMODE.
+            int group = Marshal.ReadInt32(info, 516) >> 4;
+            if (group == 0x381 || group == 0x370 || (group >= 0x385 && group <= 0x388))
+                throw new InvalidOperationException("This bridge requires the SMART-21/31/51 SDK device family.");
+        } finally { Marshal.FreeHGlobal(info); }
     }
 
-    public static uint RestoreJobMainDensity(IntPtr handle, int density) {
-        const int capacity = 16384;
-        IntPtr settings = Marshal.AllocHGlobal(capacity);
+    public static ulong ReadStatus(IntPtr handle) {
+        IntPtr buffer = Marshal.AllocHGlobal(16);
         try {
-            int length = capacity;
-            uint result = GetPrinterSettings2(handle, settings, ref length);
-            if (result != 0 || length <= Smart51MainDensityOffset + 4) return result == 0 ? 1u : result;
-            Marshal.WriteInt32(settings, Smart51MainDensityOffset, density);
-            return SetPrinterSettings2(handle, settings, length);
-        } finally { Marshal.FreeHGlobal(settings); }
+            uint result = GetStatus(handle, buffer);
+            if (result != 0) throw new InvalidOperationException("Cannot read printer status (code " + result + ").");
+            return unchecked((ulong)Marshal.ReadInt64(buffer));
+        } finally { Marshal.FreeHGlobal(buffer); }
+    }
+
+    // SMART-51 status masks from the supplied IDP SDK header. Require drained
+    // print buffer, stopped motors and no error/cover/lock/SBS/test state.
+    public static bool IsIdle(ulong status) {
+        if ((status & 0xFFFFFFFF00000000UL) != 0 || (status & 0xD8020000UL) != 0)
+            throw new InvalidOperationException("Printer is not ready; status=0x" + status.ToString("X16") + ". Check the printer display. Do not resend a partially printed card.");
+        return (status & 0x206007FFUL) == 0;
+    }
+
+    public static void WaitForIdle(Func<ulong> read, Action pause, int attempts, int stableSamples) {
+        int stable = 0;
+        for (int i = 0; i < attempts; i++) {
+            stable = IsIdle(read()) ? stable + 1 : 0;
+            if (stable >= stableSamples) return;
+            pause();
+        }
+        throw new TimeoutException("Printer did not finish within the timeout. Check the printer before starting another job.");
+    }
+
+    public static void WaitForCompletion(IntPtr handle) {
+        WaitForIdle(() => ReadStatus(handle), () => System.Threading.Thread.Sleep(200), 900, 10);
     }
 
     public static string GetFirstDeviceDescription() {
@@ -109,14 +121,16 @@ function Write-BridgeLog([string]$message) {
     Add-Content -Path (Join-Path $bridgeDir 'bridge.log') -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue
 }
 
-function Convert-ToOpaqueBitmap([string]$dataUrl, [string]$name) {
+function Convert-ToOpaqueBitmap([string]$dataUrl, [string]$name, [int]$width, [int]$height) {
     if (-not $dataUrl.StartsWith('data:image/png;base64,')) { throw 'The request must contain PNG panel images.' }
     Add-Type -AssemblyName System.Drawing
     $pngPath = Join-Path ([IO.Path]::GetTempPath()) ($name + '-' + [guid]::NewGuid().ToString('N') + '.png')
     $bmpPath = [IO.Path]::ChangeExtension($pngPath, '.bmp')
     [IO.File]::WriteAllBytes($pngPath, [Convert]::FromBase64String($dataUrl.Substring($dataUrl.IndexOf(',') + 1)))
-    $source = [Drawing.Image]::FromFile($pngPath)
+    $source = $null
     try {
+        $source = [Drawing.Image]::FromFile($pngPath)
+        if ($source.Width -ne $width -or $source.Height -ne $height) { throw "Invalid $name panel size. Update the extension and bridge together." }
         $bitmap = [Drawing.Bitmap]::new($source.Width, $source.Height, [Drawing.Imaging.PixelFormat]::Format24bppRgb)
         try {
             $graphics = [Drawing.Graphics]::FromImage($bitmap)
@@ -124,61 +138,85 @@ function Convert-ToOpaqueBitmap([string]$dataUrl, [string]$name) {
             $bitmap.SetResolution(300, 300)
             $bitmap.Save($bmpPath, [Drawing.Imaging.ImageFormat]::Bmp)
         } finally { $bitmap.Dispose() }
-    } finally { $source.Dispose(); Remove-Item $pngPath -Force -ErrorAction SilentlyContinue }
+    } catch {
+        Remove-Item $bmpPath -Force -ErrorAction SilentlyContinue
+        throw
+    } finally { if ($source) { $source.Dispose() }; Remove-Item $pngPath -Force -ErrorAction SilentlyContinue }
     return $bmpPath
 }
 
 function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
-    $colorPath = Convert-ToOpaqueBitmap $colorDataUrl 'rubezh-color'
-    $blackPath = Convert-ToOpaqueBitmap $blackDataUrl 'rubezh-black'
+    $colorPath = $null
+    $blackPath = $null
     $handle = [IntPtr]::Zero
     $devicePtr = [IntPtr]::Zero
     $colorPtr = [IntPtr]::Zero
     $blackPtr = [IntPtr]::Zero
     $rectPtr = [IntPtr]::Zero
-    $originalMainDensity = 0
-    $densityWasChanged = $false
     try {
+        $colorPath = Convert-ToOpaqueBitmap $colorDataUrl 'rubezh-color' 440 554
+        $blackPath = Convert-ToOpaqueBitmap $blackDataUrl 'rubezh-black' 1012 638
         $printer = Get-SmartPrinter
         $devicePtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($printer)
+        [SmartSdk]::ValidateDevice($devicePtr)
         $result = [SmartSdk]::OpenDevice([ref]$handle, $devicePtr, 1)
         if ($result -ne 0) { throw "SmartComm could not open '$printer' (code $result)." }
+        $initialStatus = [SmartSdk]::ReadStatus($handle)
+        Write-BridgeLog ('Preflight status=0x{0:X16}' -f $initialStatus)
+        if (-not [SmartSdk]::IsIdle($initialStatus)) { throw 'Printer is busy or has pending print data. Wait for the previous job to finish.' }
         $ribbonType = -1
         $ribbonMaximum = -1
         $ribbonRemaining = -1
         $ribbonGrade = -1
         $ribbonResult = [SmartSdk]::GetRibbonInfo($handle, [ref]$ribbonType, [ref]$ribbonMaximum, [ref]$ribbonRemaining, [ref]$ribbonGrade)
-        $originalMainDensity = [SmartSdk]::SetJobMainDensity($handle, 30)
-        $densityWasChanged = $true
-        Write-BridgeLog "Print started: printer=$printer; temporaryMainDensity=30 originalMainDensity=$originalMainDensity; ribbonResult=$ribbonResult ribbonType=$ribbonType ribbonRemaining=$ribbonRemaining ribbonMaximum=$ribbonMaximum ribbonGrade=$ribbonGrade"
+        if ($ribbonResult -ne 0) { throw "Cannot check ribbon (code $ribbonResult)." }
+        if ($ribbonRemaining -le 0) { throw 'The ribbon is empty.' }
+        Write-BridgeLog "Print started: printer=$printer; settings=unchanged; ribbonResult=$ribbonResult ribbonType=$ribbonType ribbonRemaining=$ribbonRemaining ribbonMaximum=$ribbonMaximum ribbonGrade=$ribbonGrade"
 
         $colorPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($colorPath)
         $blackPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($blackPath)
         $rect = New-Object SmartSdk+RECT
         $rectPtr = [Runtime.InteropServices.Marshal]::AllocHGlobal([Runtime.InteropServices.Marshal]::SizeOf($rect))
         [Runtime.InteropServices.Marshal]::StructureToPtr($rect, $rectPtr, $false)
-        # PAGE_FRONT=0, PANEL_COLOR=1; zero dimensions fill the entire card.
-        $result = [SmartSdk]::DrawImage($handle, 0, 1, 0, 0, 0, 0, $colorPtr, $rectPtr)
+        # PAGE_FRONT=0, PANEL_COLOR=1. Explicit half-card color bounds;
+        # K remains full-card. Coordinates are SDK pixels at 300 dpi.
+        $result = [SmartSdk]::DrawImage($handle, 0, 1, 0, 84, 440, 554, $colorPtr, $rectPtr)
         if ($result -ne 0) { throw "SmartComm could not draw the color panel (code $result)." }
-        $result = [SmartSdk]::DrawImage($handle, 0, 2, 0, 0, 0, 0, $blackPtr, $rectPtr)
+        $result = [SmartSdk]::DrawImage($handle, 0, 2, 0, 0, 1012, 638, $blackPtr, $rectPtr)
         if ($result -ne 0) { throw "SmartComm could not draw the black panel (code $result)." }
         $result = [SmartSdk]::Print($handle)
         if ($result -ne 0) { throw "SmartComm rejected the print job (code $result)." }
         Write-BridgeLog "Print accepted by SmartComm: result=$result ribbonType=$ribbonType ribbonRemaining=$ribbonRemaining"
+        [SmartSdk]::WaitForCompletion($handle)
+        Write-BridgeLog ('Print completed; finalStatus=0x{0:X16}' -f [SmartSdk]::ReadStatus($handle))
         return @{ ok = $true; printer = $printer; ribbonType = $ribbonType; ribbonRemaining = $ribbonRemaining }
     }
     finally {
-        if ($handle -ne [IntPtr]::Zero -and $densityWasChanged) {
-            $restoreResult = [SmartSdk]::RestoreJobMainDensity($handle, $originalMainDensity)
-            Write-BridgeLog "Job density restore: originalMainDensity=$originalMainDensity result=$restoreResult"
+        if ($handle -ne [IntPtr]::Zero) {
+            try { Write-BridgeLog ('Close device: result=' + [SmartSdk]::CloseDevice($handle)) }
+            catch { Write-BridgeLog ('Close device failed: ' + $_.Exception.Message) }
         }
-        if ($handle -ne [IntPtr]::Zero) { [SmartSdk]::CloseDevice($handle) | Out-Null }
         if ($devicePtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($devicePtr) }
         if ($colorPtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($colorPtr) }
         if ($blackPtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($blackPtr) }
         if ($rectPtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($rectPtr) }
-        Remove-Item $colorPath,$blackPath -Force -ErrorAction SilentlyContinue
+        foreach ($path in @($colorPath,$blackPath)) { if ($path) { Remove-Item $path -Force -ErrorAction SilentlyContinue } }
     }
+}
+
+function Invoke-PrintRequest($payload, [hashtable]$jobs) {
+    $jobId = [string]$payload.jobId
+    if ($jobId -notmatch '^printPayload-[a-f0-9-]{36}$') { throw 'Update the extension: a unique print job ID is required.' }
+    if (-not $jobs.ContainsKey($jobId)) {
+        if ($jobs.Count -ge 5000) { throw 'Restart the bridge while the printer is idle to clear the completed job history.' }
+        # Reserve before touching the device: a lost HTTP response must
+        # never cause the same card to consume a second set of panels.
+        $jobs[$jobId] = @{ ok = $false; error = 'Print completion is unknown. Check the printer before repeating.' }
+        Write-BridgeLog ('Job started: ' + $jobId)
+        try { $jobs[$jobId] = Invoke-CardPrint $payload.colorImageDataUrl $payload.blackImageDataUrl; Write-BridgeLog ('Job completed: ' + $jobId) }
+        catch { $jobs[$jobId] = @{ ok = $false; error = $_.Exception.Message }; Write-BridgeLog ('Job ' + $jobId + ' failed: ' + $_.Exception.ToString()) }
+    } else { Write-BridgeLog ('Duplicate job ignored: ' + $jobId) }
+    return $jobs[$jobId]
 }
 
 function Send-Response($stream, [int]$status, [string]$body) {
@@ -192,12 +230,16 @@ function Send-Response($stream, [int]$status, [string]$body) {
 
 $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $port)
 $listener.Start()
+$jobs = @{}
 while ($true) {
     $client = $listener.AcceptTcpClient()
     try {
         $stream = $client.GetStream()
+        $stream.ReadTimeout = 10000
+        $stream.WriteTimeout = 10000
         $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::ASCII, $false, 4096, $true)
         $requestLine = $reader.ReadLine()
+        if (-not $requestLine) { continue }
         $contentLength = 0
         while ($true) {
             $line = $reader.ReadLine()
@@ -207,13 +249,17 @@ while ($true) {
         if ($requestLine -match '^OPTIONS ') {
             Send-Response $stream 200 '{"ok":true}'
         } elseif ($requestLine -match '^GET /health ') {
-            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter } | ConvertTo-Json -Compress)
+            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 2 } | ConvertTo-Json -Compress)
         } elseif ($requestLine -match '^POST /print ' -and $contentLength -gt 0 -and $contentLength -le 16777216) {
             $chars = New-Object char[] $contentLength
             $read = 0
-            while ($read -lt $contentLength) { $read += $reader.Read($chars, $read, $contentLength - $read) }
+            while ($read -lt $contentLength) {
+                $count = $reader.Read($chars, $read, $contentLength - $read)
+                if ($count -le 0) { throw 'Incomplete print request; nothing was sent to the printer.' }
+                $read += $count
+            }
             $payload = (-join $chars) | ConvertFrom-Json
-            Send-Response $stream 200 (Invoke-CardPrint $payload.colorImageDataUrl $payload.blackImageDataUrl | ConvertTo-Json -Compress)
+            Send-Response $stream 200 (Invoke-PrintRequest $payload $jobs | ConvertTo-Json -Compress)
         } else {
             Send-Response $stream 400 '{"ok":false,"error":"Invalid request."}'
         }

@@ -1,7 +1,7 @@
 {
   "name": "rubezh-strazh-pass-printer",
   "private": true,
-  "version": "2.6.0",
+  "version": "2.7.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc && esbuild extension-ts/content.ts --bundle --format=iife --target=chrome120 --outfile=src/content.js",
@@ -9,6 +9,7 @@
   },
   "devDependencies": {
     "esbuild": "^0.25.8",
+    "jsdom": "^26.1.0",
     "typescript": "^5.9.2"
   }
 }

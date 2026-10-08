@@ -27,4 +27,12 @@ async function renderLayer(type:PassType,e:EmployeeData,layer:Layer){const{canva
  return canvas.toDataURL('image/png')
 }
 export async function renderCard(type:PassType,e:EmployeeData){return renderLayer(type,e,'composite')}
-export async function renderCardPanels(type:PassType,e:EmployeeData){const[colorImageDataUrl,blackImageDataUrl]=await Promise.all([renderLayer(type,e,'color'),renderLayer(type,e,'black')]);return{colorImageDataUrl,blackImageDataUrl}}
+export async function renderCardPanels(type:PassType,e:EmployeeData){
+ const[colorLayer,blackImageDataUrl]=await Promise.all([renderLayer(type,e,'color'),renderLayer(type,e,'black')]);
+ // Only this area contains YMC ink. Do not ask hYMCKO half-length color
+ // panels to carry a full-card image whose right half is merely white.
+ const color=await load(colorLayer),canvas=document.createElement('canvas');
+ canvas.width=440;canvas.height=554;
+ canvas.getContext('2d')!.drawImage(color,0,84,440,554,0,0,440,554);
+ return{colorImageDataUrl:canvas.toDataURL('image/png'),blackImageDataUrl};
+}
