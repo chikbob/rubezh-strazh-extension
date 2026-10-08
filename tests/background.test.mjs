@@ -7,7 +7,7 @@ import ts from 'typescript';
 test('concurrent preview windows keep independent payloads and source tabs',async()=>{
  const stored={},windows=[];let listener;
  const chrome={runtime:{onMessage:{addListener:fn=>{listener=fn}},getURL:url=>'https://extension.test/'+url},storage:{session:{set:async value=>Object.assign(stored,value),remove:async key=>{delete stored[key]}}},windows:{create:async options=>{windows.push(options)}}};
- const source=fs.readFileSync(new URL('../extension-ts/background.ts',import.meta.url),'utf8').replace(/^import.*\n/gm,'');
+ const source=fs.readFileSync(new URL('../extension-ts/background.ts',import.meta.url),'utf8').replace(/\r?\n/g,'\r\n').replace(/^import[^\n]*(?:\n|$)/gm,'');
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText,{chrome,crypto:webcrypto});
  const send=(fullName,tab)=>new Promise(resolve=>listener({type:'PRINT_PASS',passType:'employee',employee:{fullName}},{tab:{id:tab}},resolve));
  const results=await Promise.all([send('Первый',42),send('Второй',43)]);

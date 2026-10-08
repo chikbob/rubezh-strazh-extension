@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import ts from 'typescript';
 import {JSDOM} from 'jsdom';
 const employee={fullName:'Иван Иванов',surname:'Иванов',name:'Иван',employeeNumber:'01057',identifiers:['389369658']};
-const code=ts.transpileModule(fs.readFileSync(new URL('../extension-ts/print.ts',import.meta.url),'utf8').replace(/^import.*\n/gm,'').replace('void main();','window.started=main();'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText;
+const code=ts.transpileModule(fs.readFileSync(new URL('../extension-ts/print.ts',import.meta.url),'utf8').replace(/\r?\n/g,'\r\n').replace(/^import[^\n]*(?:\n|$)/gm,'').replace('void main();','window.started=main();'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText;
 async function preview(type='temporary'){
  const dom=new JSDOM(fs.readFileSync(new URL('../src/print.html',import.meta.url),'utf8'),{url:'https://extension.test/print.html?payload=printPayload-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',runScripts:'outside-only'});
  const w=dom.window,rendered=[],requests=[];
