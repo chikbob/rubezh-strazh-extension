@@ -1,19 +1,29 @@
-import{renderCard,renderCardObjects}from'./renderer.js';
+import{renderCard,renderCardObjects,renderNativePhoto}from'./renderer.js';
 import type{EmployeeData,EmployeePhoto,PassType}from'./types.js';
 
 const BRIDGE='http://127.0.0.1:18451';
 const ALLOWED_IMAGE_TYPES=new Set(['image/jpeg','image/png','image/webp','image/bmp']);
-type CardPanels=Awaited<ReturnType<typeof renderCardObjects>>;
+type CardPanels=Partial<EmployeeData>&{passType:PassType;photoDataUrl?:string;objects?:Awaited<ReturnType<typeof renderCardObjects>>['objects']};
 
 async function directPrint(plan:CardPanels,jobId:string){
  const health=await fetch(`${BRIDGE}/health`).then(response=>response.json());
- if(health.protocolVersion!==5)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии, когда принтер не печатает. Старый мост не используется.');
+ if(health.protocolVersion!==6)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии, когда принтер не печатает. Старый мост не используется.');
  // Bridge HTTP framing counts ASCII bytes, including escaped Cyrillic text.
  const body=JSON.stringify({...plan,jobId}).replace(/[\u007f-\uffff]/g,char=>'\\u'+char.charCodeAt(0).toString(16).padStart(4,'0'));
  const response=await fetch(`${BRIDGE}/print`,{method:'POST',headers:{'Content-Type':'application/json'},body});
  const result=await response.json() as{ok?:boolean;error?:string;printer?:string};
  if(!response.ok||!result.ok)throw new Error(result.error||`Ошибка моста печати (${response.status})`);
  return result;
+}
+
+async function prepareNativePreview(plan:CardPanels){
+ const health=await fetch(`${BRIDGE}/health`).then(response=>response.json());
+ if(health.protocolVersion!==6)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии.');
+ const body=JSON.stringify(plan).replace(/[\u007f-\uffff]/g,char=>'\\u'+char.charCodeAt(0).toString(16).padStart(4,'0'));
+ const response=await fetch(`${BRIDGE}/preview`,{method:'POST',headers:{'Content-Type':'application/json'},body});
+ const result=await response.json() as{ok?:boolean;error?:string;previewDataUrl?:string};
+ if(!response.ok||!result.ok||!result.previewDataUrl)throw new Error(result.error||'Не удалось проверить нативный шаблон. Печать не отправлена.');
+ return result.previewDataUrl;
 }
 
 function readPhoto(file:File):Promise<EmployeePhoto>{
@@ -83,7 +93,12 @@ async function main(){
   const employee=employeeForRender();
   const dataUrl=await renderCard(payload.type,employee);
   await setPreview(image,dataUrl);
- if(!requiresPhoto||selectedPhoto) panels=await renderCardObjects(payload.type,employee);
+ if(!requiresPhoto) panels={passType:payload.type,...await renderCardObjects(payload.type,employee)};
+ else if(selectedPhoto){
+  const plan:CardPanels={passType:payload.type,surname:employee.surname,name:employee.name,patronymic:employee.patronymic||'',position:employee.position||'',employeeNumber:employee.employeeNumber||'',passNumber:employee.passNumber||'',photoDataUrl:await renderNativePhoto(selectedPhoto.dataUrl)};
+  await setPreview(image,await prepareNativePreview(plan));
+  panels=plan;
+ }
   setControlsBusy(false);
  };
  identifierSelect.addEventListener('change',async()=>{selectedIdentifier=identifierSelect.value;try{await rerender();status.textContent=requiresPhoto&&!selectedPhoto?'Выберите исходный файл фотографии. До этого печать недоступна.':'Проверьте данные и нажмите «Печать».'}catch(error){status.textContent=`Ошибка формирования пропуска: ${String(error)}`;setControlsBusy(false)}});
@@ -156,7 +171,7 @@ async function main(){
    photoName.hidden=false;
    status.textContent='Выберите исходный файл фотографии. До этого печать недоступна.';
   }else{
-   panels=await renderCardObjects(payload.type,employeeForRender());
+   await rerender();
    status.textContent='Проверьте данные и нажмите «Печать».';
    setControlsBusy(false);
   }

@@ -116,6 +116,9 @@ async function renderLayer(type, e, layer, objects) {
 }
 export async function renderCard(type, e) { return renderLayer(type, e, 'composite'); }
 export async function renderCardObjects(type, e) { const objects = []; await renderLayer(type, e, 'composite', objects); return { objects }; }
+// Preserve the CSD portrait's source dimensions and framing. Do not apply the
+// browser's contrast/brightness filter a second time to a native CSD image.
+export async function renderNativePhoto(dataUrl) { const photo = await load(dataUrl), canvas = document.createElement('canvas'); canvas.width = 386; canvas.height = 502; const ctx = canvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 386, 502); cover(ctx, photo, 0, 0, 386, 502); return canvas.toDataURL('image/png'); }
 export async function renderCardPanels(type, e) {
     // Send an explicitly white full-card surface for each panel. The half-ribbon
     // format belongs to the printer profile, not the input bitmap dimensions.

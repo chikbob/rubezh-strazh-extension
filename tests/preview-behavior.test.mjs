@@ -8,15 +8,18 @@ const code=ts.transpileModule(fs.readFileSync(new URL('../extension-ts/print.ts'
 async function preview(type='temporary'){
  const dom=new JSDOM(fs.readFileSync(new URL('../src/print.html',import.meta.url),'utf8'),{url:'https://extension.test/print.html?payload=printPayload-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',runScripts:'outside-only'});
  const w=dom.window,rendered=[],requests=[];
- let snapshot=structuredClone(employee),protocolVersion=5;
+ let snapshot=structuredClone(employee),protocolVersion=6,previewError=false;
+ w.FileReader=class{readAsDataURL(){this.result='data:image/png;base64,AA==';this.onload()}};
+ w.Image=class{naturalWidth=386;naturalHeight=502;set src(value){this.onload()}};
  w.HTMLImageElement.prototype.decode=async()=>{};
  w.renderCard=async(type,data)=>{rendered.push(structuredClone(data));return 'data:image/png;base64,AA=='};
  w.renderCardObjects=async()=>({objects:[{kind:'text',text:'Иванов'}]});
+ w.renderNativePhoto=async()=> 'data:image/png;base64,AA==';
  w.chrome={storage:{session:{get:async key=>({[key]:{employee:structuredClone(employee),type,sourceTabId:42}}),remove:async()=>{}}},tabs:{sendMessage:async id=>{assert.equal(id,42);return{ok:true,employee:structuredClone(snapshot)}}}};
- w.fetch=async(url,options)=>{requests.push({url,options});return{ok:true,json:async()=>url.endsWith('/health')?{protocolVersion}:{ok:true,printer:'SMART-51'}}};
+ w.fetch=async(url,options)=>{requests.push({url,options});return{ok:true,json:async()=>url.endsWith('/health')?{protocolVersion}:url.endsWith('/preview')?(previewError?{ok:false,error:'Invalid CSD'}:{ok:true,previewDataUrl:'data:image/png;base64,U0RL'}):{ok:true,printer:'SMART-51'}}};
  w.setInterval=fn=>{w.poll=fn};w.setTimeout=()=>{};
  w.eval(code);await w.started;
- return{dom,w,rendered,requests,setSnapshot(value){snapshot=value},setProtocol(value){protocolVersion=value}};
+ return{dom,w,rendered,requests,setSnapshot(value){snapshot=value},setProtocol(value){protocolVersion=value},failPreview(){previewError=true}};
 }
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 async function waitFor(condition){for(let i=0;i<30;i++){if(condition())return;await settle()}assert.ok(condition())}
@@ -51,4 +54,31 @@ test('employee and MOSN require a source photo; temporary does not',async()=>{
 test('old bridge is never sent incompatible full-card panel data',async()=>{
  const p=await preview();p.setProtocol(2);p.w.document.querySelector('#confirm-print').click();await waitFor(()=>p.requests.length===1);await settle();
  assert.ok(p.requests[0].url.endsWith('/health'));assert.equal(p.w.document.querySelector('#confirm-print').disabled,true);p.dom.window.close();
+});
+async function attachPhoto(p){
+ const input=p.w.document.querySelector('#photo-file');
+ Object.defineProperty(input,'files',{value:[new p.w.File(['photo'],'source.png',{type:'image/png'})],configurable:true});
+ input.dispatchEvent(new p.w.Event('change'));
+ await waitFor(()=>p.requests.some(r=>r.url.endsWith('/preview')));await settle();
+}
+test('C/M show the SDK CSD preview before enabling a single explicit print',async()=>{
+ for(const type of ['employee','mosn']){
+  const p=await preview(type);await attachPhoto(p);
+  const button=p.w.document.querySelector('#confirm-print');assert.equal(button.disabled,false);
+  assert.equal(p.w.document.querySelector('#card').src,'data:image/png;base64,U0RL');
+  assert.equal(p.requests.filter(r=>r.url.endsWith('/print')).length,0);
+  const prepared=JSON.parse(p.requests.find(r=>r.url.endsWith('/preview')).options.body);
+  assert.equal(prepared.passType,type);assert.equal(prepared.passNumber,employee.identifiers[0]);
+  assert.equal(prepared.photoDataUrl,'data:image/png;base64,AA==');assert.equal(prepared.objects,undefined);
+  button.click();await waitFor(()=>p.requests.some(r=>r.url.endsWith('/print')));await settle();
+  const printed=JSON.parse(p.requests.find(r=>r.url.endsWith('/print')).options.body);
+  delete printed.jobId;assert.deepEqual(printed,prepared);
+  button.click();await settle();assert.equal(p.requests.filter(r=>r.url.endsWith('/print')).length,1);p.dom.window.close();
+ }
+});
+test('failed native CSD preview leaves printing disabled and sends no print',async()=>{
+ const p=await preview('employee');p.failPreview();await attachPhoto(p);
+ assert.equal(p.w.document.querySelector('#confirm-print').disabled,true);
+ p.w.document.querySelector('#confirm-print').click();await settle();
+ assert.equal(p.requests.filter(r=>r.url.endsWith('/print')).length,0);p.dom.window.close();
 });

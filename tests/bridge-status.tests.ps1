@@ -9,6 +9,7 @@ $source = Get-Content (Join-Path $root 'bridge/RubezhPrintBridge.ps1') -Raw
 $kernel = [regex]::Match($source, "(?s)\`$kernelSource = @'\r?\n(.*?)\r?\n'@").Groups[1].Value
 if (-not $kernel) { throw 'SDK wrapper source was not found.' }
 Add-Type -Path (Join-Path $root 'bridge/Smart51Profile.cs')
+Add-Type -Path (Join-Path $root 'bridge/NativeCsd.cs')
 $bridgeDir = Join-Path $root 'bridge'
 
 # Execute the real wait/state logic with no DLL or physical printer attached.
@@ -51,7 +52,7 @@ public static class BridgeStatusTests {
 }
 public static class FakeSmartSdk {
     public struct RECT { public int Left, Top, Right, Bottom; }
-    public static int Opened, Closed, Printed, Waited;
+    public static int Opened, Closed, Printed, Waited, DocumentsOpened, DocumentsClosed, Previews;
     public static string FailAt = "";
     public static byte[] Settings;
     public static int SettingsWritten;
@@ -88,6 +89,16 @@ public static class FakeSmartSdk {
         SmartSdk.WaitForIdle(() => Status, () => {}, 10, 3);
     }
     public static uint CloseDevice(IntPtr handle) { Closed++; return 0; }
+    public static uint OpenDocument(IntPtr handle, string path) {
+        if (!System.IO.File.Exists(path)) throw new Exception("Prepared CSD missing");
+        DocumentsOpened++; return FailAt == "document" ? 1u : 0u;
+    }
+    public static uint CloseDocument(IntPtr handle) { DocumentsClosed++; return 0; }
+    public static void SaveDocumentPreview(IntPtr handle, string path) {
+        Previews++;
+        if (FailAt == "preview") throw new Exception("Native preview failed");
+        System.IO.File.WriteAllBytes(path, new byte[]{1,2,3});
+    }
 }
 '@
 Add-Type -TypeDefinition ($kernel + "`n" + $testSource) -Language CSharp
@@ -105,12 +116,16 @@ $settings[68] = 220
 # Exercise the actual PowerShell job/cache/finally blocks with a fake native
 # device; no ribbon movement or print command is sent to any real printer.
 $ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$null, [ref]$null)
-foreach ($name in @('Assert-PrintObjects','Invoke-CardPrint','Invoke-PrintRequest')) {
+foreach ($name in @('Assert-PrintObjects','Invoke-CardPrint','Invoke-NativeCsd','Invoke-PrintRequest')) {
     $function = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     Invoke-Expression ($function.Extent.Text.Replace('[SmartSdk]', '[FakeSmartSdk]').Replace('SmartSdk+RECT', 'FakeSmartSdk+RECT'))
 }
 function Get-SmartPrinter { return 'Fake SMART-51' }
 function Write-BridgeLog([string]$message) {}
+function Convert-NativePreview([string]$path) {
+    Assert-Bridge (Test-Path $path) 'Native preview file missing'
+    return 'data:image/png;base64,U0RL'
+}
 $createdFiles = [Collections.Generic.List[string]]::new()
 function Convert-ToOpaqueBitmap([string]$data, [string]$name, [int]$width, [int]$height) {
     $path = [IO.Path]::GetTempFileName()
@@ -175,7 +190,7 @@ $script:printerNeedsCheck = $false
 $badObjects = @($objects | ForEach-Object { $_.Clone() })
 $badObjects[0].width = 1012
 $beforeOpen = [FakeSmartSdk]::Opened
-$badPayload = @{ jobId='printPayload-'+[guid]::NewGuid(); objects=$badObjects }
+$badPayload = @{ jobId='printPayload-'+[guid]::NewGuid(); passType='temporary'; objects=$badObjects }
 $validationJobs = @{}
 Assert-Bridge (-not (Invoke-PrintRequest $badPayload $validationJobs).ok) 'Full-card color image was accepted'
 Assert-Bridge ([FakeSmartSdk]::Opened -eq $beforeOpen) 'Invalid object plan opened the printer'
@@ -183,7 +198,7 @@ $jobs = @{}
 for ($i = 0; $i -lt 100; $i++) {
     # Most jobs use unchanged defaults. The last job exercises apply + restore.
     if ($i -eq 99) { [FakeSmartSdk]::Settings[796] = 30 }
-    $payload = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); objects=$objects }
+    $payload = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); passType='temporary'; objects=$objects }
     Assert-Bridge (Invoke-PrintRequest $payload $jobs).ok 'A full job must succeed'
     Assert-Bridge (Invoke-PrintRequest $payload $jobs).ok 'Duplicate returns original result'
 }
@@ -197,7 +212,7 @@ foreach ($failure in @('black','wait','busy','verify','ribbonType','printFault',
     [FakeSmartSdk]::SettingsWritten = 0
     [FakeSmartSdk]::Settings[796] = 30
     [FakeSmartSdk]::Status = if ($failure -eq 'busy') { 0x200 } else { 0 }
-    $payload = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); objects=$objects }
+    $payload = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); passType='temporary'; objects=$objects }
     $beforePrint = [FakeSmartSdk]::Printed
     Assert-Bridge (-not (Invoke-PrintRequest $payload $jobs).ok) ('Failure must not return success: ' + $failure)
     if ($failure -in @('verify','ribbonType','busy','black','bounds')) { Assert-Bridge ([FakeSmartSdk]::Printed -eq $beforePrint) 'Preflight failure sent a print command' }
@@ -206,7 +221,7 @@ foreach ($failure in @('black','wait','busy','verify','ribbonType','printFault',
     Assert-Bridge (-not (Invoke-PrintRequest $payload $jobs).ok) 'Repeated failed job is not retried'
     Assert-Bridge ([FakeSmartSdk]::Printed -eq $before) 'Failure retry consumed another panel'
     if ($failure -in @('wait','printFault')) {
-        $other = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); objects=$objects }
+        $other = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); passType='temporary'; objects=$objects }
         Assert-Bridge (-not (Invoke-PrintRequest $other $jobs).ok) 'A new window must not bypass unconfirmed-print lock'
         Assert-Bridge ([FakeSmartSdk]::Printed -eq $before) 'Unconfirmed-print lock sent another print'
     }
@@ -214,3 +229,51 @@ foreach ($failure in @('black','wait','busy','verify','ribbonType','printFault',
 Assert-Bridge ([FakeSmartSdk]::Opened -eq [FakeSmartSdk]::Closed) 'Handles must be closed after failures'
 foreach ($path in $createdFiles) { Assert-Bridge (-not (Test-Path $path)) 'Panel temporary file leaked' }
 Write-Host 'Bridge job tests passed: 100 jobs, duplicates, black-panel failure, ribbon failure, busy preflight and resource cleanup.'
+
+$nativeMaster = [NativeCsd]::Load((Join-Path $bridgeDir 'employee-native.csd'))
+$nativePhoto = [NativeCsd]::ExtractPhoto($nativeMaster)
+$nativeValues = [string[]]@('TestSurname','TestName','TestPatronymic','Position','99999','349602761')
+$nativeDocument = [NativeCsd]::Prepare($nativeMaster,$nativeValues,$nativePhoto,$false)
+$mosnValues=[string[]]$nativeValues.Clone();$mosnValues[4]=''
+$mosnDocument=[NativeCsd]::Prepare($nativeMaster,$mosnValues,$nativePhoto,$true)
+Assert-Bridge ($mosnDocument.Length -gt 25713) 'MOSN template preparation failed'
+# Independent check of every replacement and exact original PRN settings chunk.
+$masterText = [Text.Encoding]::Unicode.GetString($nativeMaster)
+$documentText = [Text.Encoding]::Unicode.GetString($nativeDocument)
+foreach ($slot in [NativeCsd]::Slots) { Assert-Bridge (-not $documentText.Contains($slot)) 'Native placeholder remained' }
+for ($i = 0; $i -lt 25713; $i++) { Assert-Bridge ($nativeMaster[$i] -eq $nativeDocument[$i]) 'Native CSD printer chunk changed' }
+$nativePayload = @{jobId='printPayload-'+[guid]::NewGuid();passType='employee';surname=$nativeValues[0];name=$nativeValues[1];patronymic=$nativeValues[2];position=$nativeValues[3];employeeNumber=$nativeValues[4];passNumber=$nativeValues[5];photoDataUrl=('data:image/png;base64,'+[Convert]::ToBase64String($nativePhoto))}
+$script:printerNeedsCheck=$false
+[FakeSmartSdk]::Status=0
+[FakeSmartSdk]::FailAt=''
+$beforeNativePrint=[FakeSmartSdk]::Printed
+$nativeJobs=@{}
+Assert-Bridge (Invoke-NativeCsd $nativePayload $true).ok 'Preview-only CSD request failed'
+Assert-Bridge ([FakeSmartSdk]::Printed -eq $beforeNativePrint) 'Preview moved a print job'
+Assert-Bridge (-not $script:printerNeedsCheck) 'Preview set unconfirmed-print lock'
+$beforeSettings=[FakeSmartSdk]::SettingsWritten
+Assert-Bridge (Invoke-PrintRequest $nativePayload $nativeJobs).ok 'Native CSD job failed'
+Assert-Bridge (Invoke-PrintRequest $nativePayload $nativeJobs).ok 'Native CSD duplicate lost cached result'
+Assert-Bridge ([FakeSmartSdk]::Printed -eq $beforeNativePrint+1) 'Native CSD duplicate printed again'
+Assert-Bridge ([FakeSmartSdk]::DocumentsOpened -eq [FakeSmartSdk]::DocumentsClosed) 'Native document leaked'
+Assert-Bridge ([FakeSmartSdk]::SettingsWritten -eq $beforeSettings) 'Native CSD rewrote printer settings'
+foreach ($bad in @('photo','text','number')) {
+    $values=[string[]]$nativeValues.Clone();$photo=[byte[]]$nativePhoto.Clone()
+    if ($bad -eq 'photo') { $photo[19]=0 }
+    if ($bad -eq 'text') { $values[0]="Test`nSurname" }
+    if ($bad -eq 'number') { $values[5]='not-an-identifier' }
+    $failed=$false
+    try { [void][NativeCsd]::Prepare($nativeMaster,$values,$photo,$false) } catch { $failed=$true }
+    Assert-Bridge $failed ('Invalid native data accepted: '+$bad)
+}
+foreach ($failure in @('document','preview','printFault')) {
+    $script:printerNeedsCheck=$false
+    [FakeSmartSdk]::Status=0
+    [FakeSmartSdk]::FailAt=$failure
+    $copy=$nativePayload.Clone();$copy.jobId='printPayload-'+[guid]::NewGuid()
+    $before=[FakeSmartSdk]::Printed
+    Assert-Bridge (-not (Invoke-PrintRequest $copy $nativeJobs).ok) 'Native failure returned success'
+    if ($failure -ne 'printFault') { Assert-Bridge ([FakeSmartSdk]::Printed -eq $before) 'Unrenderable CSD sent a print' }
+}
+Assert-Bridge ([FakeSmartSdk]::Opened -eq [FakeSmartSdk]::Closed) 'Native device leaked'
+Write-Host 'Native CSD tests passed: sanitized template, unchanged printer bytes, photo substitution, SDK render gate, deduplication and cleanup.'

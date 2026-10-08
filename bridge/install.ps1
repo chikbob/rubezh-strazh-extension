@@ -8,6 +8,8 @@ Start-Sleep -Milliseconds 500
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 Copy-Item (Join-Path $PSScriptRoot 'RubezhPrintBridge.ps1') $installDir -Force
 Copy-Item (Join-Path $PSScriptRoot 'Smart51Profile.cs') $installDir -Force
+Copy-Item (Join-Path $PSScriptRoot 'NativeCsd.cs') $installDir -Force
+Copy-Item (Join-Path $PSScriptRoot 'employee-native.csd') $installDir -Force
 Copy-Item (Join-Path $PSScriptRoot 'sotrudnikiHymcko.sd1') $installDir -Force
 Copy-Item (Join-Path $PSScriptRoot 'autostart.ps1') $installDir -Force
 Copy-Item (Join-Path $PSScriptRoot 'enable-autostart.cmd') $installDir -Force

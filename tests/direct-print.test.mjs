@@ -27,7 +27,8 @@ test('photo passes require a validated local source image before printing',()=>{
   assert.match(source,/ALLOWED_IMAGE_TYPES/);
   assert.match(source,/readAsDataURL\(file\)/);
   assert.match(source,/if\(isBusy\|\|!panels\|\|printAttempted\)return/);
-  assert.match(source,/renderCardObjects\(payload\.type,employee\)/);
+  assert.match(source,/renderNativePhoto\(selectedPhoto\.dataUrl\)/);
+  assert.match(source,/await prepareNativePreview\(plan\)/);
   assert.match(html,/id="photo-file"[^>]*type="file"[^>]*accept="image\/jpeg,image\/png,image\/webp,image\/bmp,\.bmp"/);
   assert.match(html,/id="select-photo"/);
 });

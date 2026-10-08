@@ -6,6 +6,7 @@ Set-Location $bridgeDir
 
 $kernelSource = @'
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 
 public static class SmartSdk {
@@ -41,6 +42,32 @@ public static class SmartSdk {
 
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_CloseDevice")]
     public static extern uint CloseDevice(IntPtr handle);
+
+    [DllImport("SmartComm2.dll", CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_OpenDocument")]
+    public static extern uint OpenDocument(IntPtr handle, string path);
+
+    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_CloseDocument")]
+    public static extern uint CloseDocument(IntPtr handle);
+
+    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_GetPreviewBitmap")]
+    private static extern uint GetPreviewBitmap(IntPtr handle, byte page, ref IntPtr bitmap);
+
+    public static void SaveDocumentPreview(IntPtr handle, string path) {
+        IntPtr bitmap = IntPtr.Zero;
+        uint result = GetPreviewBitmap(handle, 0, ref bitmap);
+        if (result != 0 || bitmap == IntPtr.Zero) throw new InvalidOperationException("Cannot render native CSD preview (code " + result + "). No print was sent.");
+        int header = Marshal.ReadInt32(bitmap, 0), width = Marshal.ReadInt32(bitmap, 4), height = Marshal.ReadInt32(bitmap, 8);
+        int bits = (ushort)Marshal.ReadInt16(bitmap, 14), compression = Marshal.ReadInt32(bitmap, 16);
+        if (header != 40 || width < 1 || width > 4096 || height == 0 || Math.Abs((long)height) > 4096 || (bits != 24 && bits != 32) || compression != 0)
+            throw new InvalidOperationException("Unsupported native preview DIB; no print was sent.");
+        int bytes = checked(40 + ((width * bits + 31) / 32 * 4) * Math.Abs(height));
+        byte[] dib = new byte[bytes];
+        Marshal.Copy(bitmap, dib, 0, bytes);
+        // The pointer belongs to SmartComm; never free it.
+        using (BinaryWriter output = new BinaryWriter(File.Create(path))) {
+            output.Write((ushort)0x4d42); output.Write(14 + bytes); output.Write(0); output.Write(54); output.Write(dib);
+        }
+    }
 
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_GetPrinterSettings2")]
     private static extern uint GetPrinterSettings(IntPtr handle, IntPtr settings, ref int length);
@@ -136,6 +163,7 @@ public static class SmartSdk {
 '@
 
 Add-Type -Path (Join-Path $bridgeDir 'Smart51Profile.cs')
+Add-Type -Path (Join-Path $bridgeDir 'NativeCsd.cs')
 Add-Type -TypeDefinition $kernelSource -Language CSharp
 [SmartSdk]::SetDllDirectory($bridgeDir) | Out-Null
 
@@ -302,6 +330,68 @@ function Invoke-CardPrint($objects) {
     }
 }
 
+function Convert-NativePreview([string]$path) {
+    Add-Type -AssemblyName System.Drawing
+    $image = [Drawing.Image]::FromFile($path)
+    $stream = [IO.MemoryStream]::new()
+    try {
+        $image.Save($stream,[Drawing.Imaging.ImageFormat]::Png)
+        return 'data:image/png;base64,' + [Convert]::ToBase64String($stream.ToArray())
+    } finally { $stream.Dispose(); $image.Dispose() }
+}
+
+function Invoke-NativeCsd($payload, [bool]$previewOnly) {
+    if ($script:printerNeedsCheck) { throw 'Previous print was not confirmed. Check the printer, then restart the bridge while idle. No new print was sent.' }
+    if ($payload.passType -notin @('employee','mosn')) { throw 'Native CSD is for employee and MOSN passes only.' }
+    if (-not ([string]$payload.photoDataUrl).StartsWith('data:image/png;base64,')) { throw 'Native source photo is required.' }
+    $master = [NativeCsd]::Load((Join-Path $bridgeDir 'employee-native.csd'))
+    $photo = [Convert]::FromBase64String($payload.photoDataUrl.Substring($payload.photoDataUrl.IndexOf(',') + 1))
+    $values = [string[]]@($payload.surname,$payload.name,$payload.patronymic,$payload.position,$payload.employeeNumber,$payload.passNumber)
+    if ($payload.passType -eq 'mosn') { $values[4] = '' }
+    $document = [NativeCsd]::Prepare($master,$values,$photo,($payload.passType -eq 'mosn'))
+    $csdPath = Join-Path ([IO.Path]::GetTempPath()) ('rubezh-native-' + [guid]::NewGuid().ToString('N') + '.csd')
+    $previewPath = [IO.Path]::ChangeExtension($csdPath,'.bmp')
+    $handle = [IntPtr]::Zero
+    $devicePtr = [IntPtr]::Zero
+    $opened = $false
+    try {
+        [IO.File]::WriteAllBytes($csdPath,$document)
+        $printer = Get-SmartPrinter
+        $devicePtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($printer)
+        [SmartSdk]::ValidateDevice($devicePtr)
+        $result = [SmartSdk]::OpenDevice([ref]$handle,$devicePtr,1)
+        if ($result -ne 0) { throw "Cannot open native CSD device (code $result)." }
+        $status = [SmartSdk]::ReadStatus($handle)
+        Write-BridgeLog ('Native CSD preflight status=0x{0:X16}' -f $status)
+        if (-not [SmartSdk]::IsIdle($status)) { throw 'Printer is busy; native CSD was not sent.' }
+        $type=-1; $maximum=-1; $remaining=-1; $grade=-1
+        $result = [SmartSdk]::GetRibbonInfo($handle,[ref]$type,[ref]$maximum,[ref]$remaining,[ref]$grade)
+        if ($result -ne 0 -or $type -ne 2 -or $remaining -le 0) { throw 'Native CSD requires an available hYMCKO ribbon.' }
+        $result = [SmartSdk]::OpenDocument($handle,$csdPath)
+        if ($result -ne 0) { throw "Cannot open prepared CSD (code $result). No print was sent." }
+        $opened = $true
+        # Do not add DrawImage/DrawText or overwrite the CSD's stored profile.
+        [SmartSdk]::SaveDocumentPreview($handle,$previewPath)
+        Write-BridgeLog "Native CSD loaded and rendered: previewOnly=$previewOnly ribbonType=$type ribbonRemaining=$remaining"
+        if ($previewOnly) {
+            return @{ok=$true;previewDataUrl=(Convert-NativePreview $previewPath)}
+        }
+        $script:printerNeedsCheck = $true
+        $result = [SmartSdk]::Print($handle)
+        if ($result -ne 0) { throw "Native CSD print failed (code $result)." }
+        [SmartSdk]::WaitForCompletion($handle)
+        if (-not [SmartSdk]::IsIdle([SmartSdk]::ReadStatus($handle))) { throw 'Native CSD completion is unconfirmed.' }
+        $script:printerNeedsCheck = $false
+        Write-BridgeLog 'Native CSD print completed.'
+        return @{ok=$true;printer=$printer}
+    } finally {
+        if ($opened) { try { Write-BridgeLog ('Close native CSD: result=' + [SmartSdk]::CloseDocument($handle)) } catch { Write-BridgeLog $_.Exception.Message } }
+        if ($handle -ne [IntPtr]::Zero) { [void][SmartSdk]::CloseDevice($handle) }
+        if ($devicePtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($devicePtr) }
+        foreach ($file in @($csdPath,$previewPath)) { Remove-Item $file -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 function Invoke-PrintRequest($payload, [hashtable]$jobs) {
     $jobId = [string]$payload.jobId
     if ($jobId -notmatch '^printPayload-[a-f0-9-]{36}$') { throw 'Update the extension: a unique print job ID is required.' }
@@ -311,7 +401,12 @@ function Invoke-PrintRequest($payload, [hashtable]$jobs) {
         # never cause the same card to consume a second set of panels.
         $jobs[$jobId] = @{ ok = $false; error = 'Print completion is unknown. Check the printer before repeating.' }
         Write-BridgeLog ('Job started: ' + $jobId)
-        try { $jobs[$jobId] = Invoke-CardPrint $payload.objects; Write-BridgeLog ('Job completed: ' + $jobId) }
+        try {
+            if ($payload.passType -in @('employee','mosn')) { $jobs[$jobId] = Invoke-NativeCsd $payload $false }
+            elseif ($payload.passType -eq 'temporary') { $jobs[$jobId] = Invoke-CardPrint $payload.objects }
+            else { throw 'Update the extension: pass type is required.' }
+            Write-BridgeLog ('Job completed: ' + $jobId)
+        }
         catch { $jobs[$jobId] = @{ ok = $false; error = $_.Exception.Message }; Write-BridgeLog ('Job ' + $jobId + ' failed: ' + $_.Exception.ToString()) }
     } else { Write-BridgeLog ('Duplicate job ignored: ' + $jobId) }
     return $jobs[$jobId]
@@ -347,8 +442,9 @@ while ($true) {
         if ($requestLine -match '^OPTIONS ') {
             Send-Response $stream 200 '{"ok":true}'
         } elseif ($requestLine -match '^GET /health ') {
-            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 5 } | ConvertTo-Json -Compress)
-        } elseif ($requestLine -match '^POST /print ' -and $contentLength -gt 0 -and $contentLength -le 16777216) {
+            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 6 } | ConvertTo-Json -Compress)
+        } elseif ($requestLine -match '^POST /(print|preview) ' -and $contentLength -gt 0 -and $contentLength -le 16777216) {
+            $previewOnly = $Matches[1] -eq 'preview'
             $chars = New-Object char[] $contentLength
             $read = 0
             while ($read -lt $contentLength) {
@@ -357,7 +453,8 @@ while ($true) {
                 $read += $count
             }
             $payload = (-join $chars) | ConvertFrom-Json
-            Send-Response $stream 200 (Invoke-PrintRequest $payload $jobs | ConvertTo-Json -Compress)
+            if ($previewOnly) { Send-Response $stream 200 (Invoke-NativeCsd $payload $true | ConvertTo-Json -Compress) }
+            else { Send-Response $stream 200 (Invoke-PrintRequest $payload $jobs | ConvertTo-Json -Compress) }
         } else {
             Send-Response $stream 400 '{"ok":false,"error":"Invalid request."}'
         }
