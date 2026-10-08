@@ -6,20 +6,46 @@ const asset = (name) => chrome.runtime.getURL(`src/assets/${name}`), ORGANIZATIO
 // 0.90/1.18/1.12 profile which clipped light skin tones.
 const COLOR_FILTER = 'brightness(0.95) contrast(1.14) saturate(1.07)';
 const TEXT_STROKE = 0.45;
+const objectLists = new WeakMap();
+function imageObject(ctx, image, args, panel) {
+    const draw = (target, a) => { if (a.length === 4)
+        target.drawImage(image, a[0], a[1], a[2], a[3]);
+    else
+        target.drawImage(image, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]); };
+    draw(ctx, args);
+    const objects = objectLists.get(ctx);
+    if (!objects)
+        return;
+    const [x, y, w, h] = args.slice(-4), width = Math.ceil(w), height = Math.min(Math.round(h * 636 / 638), 636 - Math.round(y * 636 / 638)), canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const out = canvas.getContext('2d');
+    out.fillStyle = '#fff';
+    out.fillRect(0, 0, width, height);
+    out.imageSmoothingEnabled = true;
+    out.imageSmoothingQuality = 'high';
+    out.filter = ctx.filter;
+    draw(out, [...args.slice(0, -4), 0, 0, width, height]);
+    objects.push({ kind: 'image', panel, x: Math.round(x), y: Math.round(y * 636 / 638), width, height, dataUrl: canvas.toDataURL('image/png') });
+}
 const load = (src) => new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = reject; image.src = src; });
-function cover(ctx, image, x, y, w, h) { const scale = Math.max(w / image.naturalWidth, h / image.naturalHeight), sw = w / scale, sh = h / scale; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(image, (image.naturalWidth - sw) / 2, (image.naturalHeight - sh) / 2, sw, sh, x, y, w, h); }
-function ink(ctx, value, x, y) { ctx.save(); ctx.strokeStyle = '#000'; ctx.lineWidth = TEXT_STROKE; ctx.lineJoin = 'round'; ctx.strokeText(value, x, y); ctx.restore(); ctx.fillText(value, x, y); }
+function cover(ctx, image, x, y, w, h) { const scale = Math.max(w / image.naturalWidth, h / image.naturalHeight), sw = w / scale, sh = h / scale; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; imageObject(ctx, image, [(image.naturalWidth - sw) / 2, (image.naturalHeight - sh) / 2, sw, sh, x, y, w, h], 1); }
+function ink(ctx, value, x, y) { const objects = objectLists.get(ctx); if (objects && value) {
+    const fontSize = Number(/(\d+(?:\.\d+)?)px/.exec(ctx.font)?.[1] || 46), width = ctx.measureText(value).width;
+    objects.push({ kind: 'text', panel: 2, text: value, fontSize: Math.round(fontSize), bold: ctx.font.startsWith('700'), x: Math.max(0, Math.round(x - (ctx.textAlign === 'center' ? width / 2 : 0))), y: Math.max(0, Math.round((y - fontSize * (ctx.textBaseline === 'middle' ? .5 : .8)) * 636 / 638)) });
+} ctx.save(); ctx.strokeStyle = '#000'; ctx.lineWidth = TEXT_STROKE; ctx.lineJoin = 'round'; ctx.strokeText(value, x, y); ctx.restore(); ctx.fillText(value, x, y); }
 function text(ctx, value, x, y, maxWidth, size, weight = 400) { let px = size; while (px > 18) {
     ctx.font = `${weight} ${px}px Arial`;
     if (ctx.measureText(value).width <= maxWidth)
         break;
     px--;
 } ink(ctx, value, x, y); }
-async function base(layer) { const canvas = document.createElement('canvas'); canvas.width = CARD.widthPx; canvas.height = CARD.heightPx; const ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 1012, 638); if (layer !== 'black') {
+async function base(layer, objects) { const canvas = document.createElement('canvas'); canvas.width = CARD.widthPx; canvas.height = CARD.heightPx; const ctx = canvas.getContext('2d'); if (objects)
+    objectLists.set(ctx, objects); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 1012, 638); if (layer !== 'black') {
     const background = await load(asset('medical-background.jpg'));
     ctx.save();
     ctx.filter = COLOR_FILTER;
-    ctx.drawImage(background, 0, 84, 440, 554);
+    imageObject(ctx, background, [0, 84, 440, 554], 1);
     ctx.restore();
 } ctx.fillStyle = '#000'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; if (layer !== 'color') {
     ctx.textAlign = 'center';
@@ -29,13 +55,13 @@ async function base(layer) { const canvas = document.createElement('canvas'); ca
     ctx.textBaseline = 'alphabetic';
 } return { canvas, ctx }; }
 function photoFrame(ctx, photo) { ctx.save(); ctx.filter = COLOR_FILTER; cover(ctx, photo, 33, 117, 375, 484); ctx.restore(); }
-function contain(ctx, image, x, y, w, h) { const scale = Math.min(w / image.naturalWidth, h / image.naturalHeight), dw = image.naturalWidth * scale, dh = image.naturalHeight * scale; ctx.drawImage(image, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh); }
-async function renderLayer(type, e, layer) {
-    const { canvas, ctx } = await base(layer);
+function contain(ctx, image, x, y, w, h, panel = 2) { const scale = Math.min(w / image.naturalWidth, h / image.naturalHeight), dw = image.naturalWidth * scale, dh = image.naturalHeight * scale; imageObject(ctx, image, [x + (w - dw) / 2, y + (h - dh) / 2, dw, dh], panel); }
+async function renderLayer(type, e, layer, objects) {
+    const { canvas, ctx } = await base(layer, objects);
     if (type === 'temporary') {
         if (layer !== 'black') {
             const color = await load(asset('emblem-color.png'));
-            contain(ctx, color, 32, 96, 375, 505);
+            contain(ctx, color, 32, 96, 375, 505, 1);
         }
         if (layer !== 'color') {
             ctx.font = '400 72px Arial';
@@ -89,6 +115,7 @@ async function renderLayer(type, e, layer) {
     return canvas.toDataURL('image/png');
 }
 export async function renderCard(type, e) { return renderLayer(type, e, 'composite'); }
+export async function renderCardObjects(type, e) { const objects = []; await renderLayer(type, e, 'composite', objects); return { objects }; }
 export async function renderCardPanels(type, e) {
     // Send an explicitly white full-card surface for each panel. The half-ribbon
     // format belongs to the printer profile, not the input bitmap dimensions.

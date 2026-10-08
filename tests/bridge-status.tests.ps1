@@ -70,10 +70,16 @@ public static class FakeSmartSdk {
     }
     public static void WriteSettings(IntPtr handle, byte[] settings) { SettingsWritten++; Settings = (byte[])settings.Clone(); }
     public static uint DrawImage(IntPtr handle, byte page, byte panel, int x, int y, int width, int height, IntPtr path, IntPtr area) {
-        if (panel == 1 && (x != 0 || y != 0 || width != 1012 || height != 636)) throw new Exception("Color bounds mismatch");
-        if (panel == 2 && (x != 0 || y != 0 || width != 1012 || height != 636)) throw new Exception("Black bounds mismatch");
+        if (panel == 1 && x + width > 506) throw new Exception("Color bounds mismatch");
+        if (x + width > 1012 || y + height > 636) throw new Exception("Image outside card");
         Marshal.StructureToPtr(new RECT { Left = x, Top = y, Right = x + width, Bottom = y + height }, area, false);
+        if (FailAt == "bounds" && panel == 1) Marshal.StructureToPtr(new RECT { Left = x, Top = y, Right = 507, Bottom = y + height }, area, false);
         return FailAt == "black" && panel == 2 ? 1u : 0u;
+    }
+    public static uint DrawText(IntPtr handle, byte page, byte panel, int x, int y, string font, int size, byte style, string text, IntPtr area) {
+        if (font != "Arial" || size >= 0 || panel != 2) throw new Exception("Native font parameters mismatch");
+        Marshal.StructureToPtr(new RECT { Left = x, Top = y, Right = x + 100, Bottom = y - size }, area, false);
+        return 0;
     }
     public static uint Print(IntPtr handle) { Printed++; if (FailAt == "printFault") { Status = 0x4000000000UL; return 0x8000001Bu; } return 0; }
     public static void WaitForCompletion(IntPtr handle) {
@@ -93,11 +99,13 @@ $settings = New-Object byte[] (784 + 12976)
 $settings[68] = 220
 [Array]::Copy($profile, 8, $settings, 784, 12976)
 [FakeSmartSdk]::Settings = $settings
+# Verify identical settings do not trigger any native setting writes.
+[FakeSmartSdk]::SettingsWritten = 0
 
 # Exercise the actual PowerShell job/cache/finally blocks with a fake native
 # device; no ribbon movement or print command is sent to any real printer.
 $ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$null, [ref]$null)
-foreach ($name in @('Invoke-CardPrint','Invoke-PrintRequest')) {
+foreach ($name in @('Assert-PrintObjects','Invoke-CardPrint','Invoke-PrintRequest')) {
     $function = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     Invoke-Expression ($function.Extent.Text.Replace('[SmartSdk]', '[FakeSmartSdk]').Replace('SmartSdk+RECT', 'FakeSmartSdk+RECT'))
 }
@@ -157,30 +165,48 @@ try {
     Assert-Bridge $failed 'Tampered density profile was accepted'
 } finally { Remove-Item $corruptPath }
 Write-Host 'Profile tests passed: real export, named SDK layout, full preservation, mismatch/readback rejection and integrity check.'
+$objects = @(
+    @{ kind='image'; panel=1; x=0; y=84; width=440; height=552; dataUrl='data:image/png;base64,AA==' },
+    @{ kind='image'; panel=1; x=33; y=117; width=375; height=482; dataUrl='data:image/png;base64,AA==' },
+    @{ kind='image'; panel=2; x=800; y=410; width=205; height=226; dataUrl='data:image/png;base64,AA==' },
+    @{ kind='text'; panel=2; x=456; y=560; fontSize=46; bold=$false; text='389369658' }
+)
+$script:printerNeedsCheck = $false
+$badObjects = @($objects | ForEach-Object { $_.Clone() })
+$badObjects[0].width = 1012
+$beforeOpen = [FakeSmartSdk]::Opened
+$badPayload = @{ jobId='printPayload-'+[guid]::NewGuid(); objects=$badObjects }
+$validationJobs = @{}
+Assert-Bridge (-not (Invoke-PrintRequest $badPayload $validationJobs).ok) 'Full-card color image was accepted'
+Assert-Bridge ([FakeSmartSdk]::Opened -eq $beforeOpen) 'Invalid object plan opened the printer'
 $jobs = @{}
 for ($i = 0; $i -lt 100; $i++) {
-    $payload = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); colorImageDataUrl = 'color'; blackImageDataUrl = 'black' }
+    # Most jobs use unchanged defaults. The last job exercises apply + restore.
+    if ($i -eq 99) { [FakeSmartSdk]::Settings[796] = 30 }
+    $payload = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); objects=$objects }
     Assert-Bridge (Invoke-PrintRequest $payload $jobs).ok 'A full job must succeed'
     Assert-Bridge (Invoke-PrintRequest $payload $jobs).ok 'Duplicate returns original result'
 }
+Assert-Bridge ([FakeSmartSdk]::SettingsWritten -eq 2) 'Identical profiles must not be rewritten on every card'
 Assert-Bridge ([FakeSmartSdk]::Printed -eq 100) '200 HTTP requests must print only 100 cards'
 Assert-Bridge ([FakeSmartSdk]::Waited -eq 100) 'Every accepted print waits for completion'
 Assert-Bridge ([FakeSmartSdk]::Opened -eq [FakeSmartSdk]::Closed) 'Handles must be closed after success'
-foreach ($failure in @('black','wait','busy','verify','ribbonType','printFault')) {
+foreach ($failure in @('black','wait','busy','verify','ribbonType','printFault','bounds')) {
     $script:printerNeedsCheck = $false
     [FakeSmartSdk]::FailAt = $failure
     [FakeSmartSdk]::SettingsWritten = 0
+    [FakeSmartSdk]::Settings[796] = 30
     [FakeSmartSdk]::Status = if ($failure -eq 'busy') { 0x200 } else { 0 }
-    $payload = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); colorImageDataUrl = 'color'; blackImageDataUrl = 'black' }
+    $payload = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); objects=$objects }
     $beforePrint = [FakeSmartSdk]::Printed
     Assert-Bridge (-not (Invoke-PrintRequest $payload $jobs).ok) ('Failure must not return success: ' + $failure)
-    if ($failure -in @('verify','ribbonType','busy','black')) { Assert-Bridge ([FakeSmartSdk]::Printed -eq $beforePrint) 'Preflight failure sent a print command' }
+    if ($failure -in @('verify','ribbonType','busy','black','bounds')) { Assert-Bridge ([FakeSmartSdk]::Printed -eq $beforePrint) 'Preflight failure sent a print command' }
     if ($failure -in @('wait','printFault')) { Assert-Bridge ([FakeSmartSdk]::SettingsWritten -eq 1) 'Settings changed after ribbon fault' }
     $before = [FakeSmartSdk]::Printed
     Assert-Bridge (-not (Invoke-PrintRequest $payload $jobs).ok) 'Repeated failed job is not retried'
     Assert-Bridge ([FakeSmartSdk]::Printed -eq $before) 'Failure retry consumed another panel'
     if ($failure -in @('wait','printFault')) {
-        $other = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); colorImageDataUrl = 'color'; blackImageDataUrl = 'black' }
+        $other = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); objects=$objects }
         Assert-Bridge (-not (Invoke-PrintRequest $other $jobs).ok) 'A new window must not bypass unconfirmed-print lock'
         Assert-Bridge ([FakeSmartSdk]::Printed -eq $before) 'Unconfirmed-print lock sent another print'
     }

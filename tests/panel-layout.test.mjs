@@ -33,5 +33,18 @@ test('both SDK panels cover the full card; the color panel has an explicit white
   }
   assert.ok(black.calls.some(call=>call[0]==='text'&&call[1]==='389369658'));
   assert.equal(await vm.runInContext('renderCard(kind,employee)',context),'panel:1012x638');
+  const plan=await vm.runInContext('renderCardObjects(kind,employee)',context);
+  assert.ok(plan.objects.some(obj=>obj.kind==='text'&&obj.text===employee.passNumber&&obj.panel===2),'Pass number must be native K text');
+  assert.equal(plan.objects.some(obj=>obj.kind==='image'&&obj.width===1012),false,'No full-card image objects');
+  const images=plan.objects.filter(obj=>obj.kind==='image');
+  assert.ok(images.length>=2);
+  for(const obj of images){
+   assert.ok(obj.x+obj.width<=(obj.panel===1?506:1012)&&obj.y+obj.height<=636,'Native image exceeds ribbon/card bounds');
+   assert.equal(obj.dataUrl,`panel:${obj.width}x${obj.height}`,'Encoded image and SDK object dimensions differ');
+  }
+  for(const obj of plan.objects.filter(obj=>obj.kind==='text')){
+   assert.equal(obj.panel,2);assert.ok(obj.fontSize>=18&&obj.fontSize<=104);
+   assert.ok(Number.isInteger(obj.x)&&Number.isInteger(obj.y));
+  }
  }
 });

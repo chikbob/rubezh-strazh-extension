@@ -1,11 +1,13 @@
-import { renderCard, renderCardPanels } from './renderer.js';
+import { renderCard, renderCardObjects } from './renderer.js';
 const BRIDGE = 'http://127.0.0.1:18451';
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/bmp']);
-async function directPrint(colorImageDataUrl, blackImageDataUrl, jobId) {
+async function directPrint(plan, jobId) {
     const health = await fetch(`${BRIDGE}/health`).then(response => response.json());
-    if (health.protocolVersion !== 4)
+    if (health.protocolVersion !== 5)
         throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии, когда принтер не печатает. Старый мост не используется.');
-    const response = await fetch(`${BRIDGE}/print`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ colorImageDataUrl, blackImageDataUrl, jobId }) });
+    // Bridge HTTP framing counts ASCII bytes, including escaped Cyrillic text.
+    const body = JSON.stringify({ ...plan, jobId }).replace(/[\u007f-\uffff]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
+    const response = await fetch(`${BRIDGE}/print`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
     const result = await response.json();
     if (!response.ok || !result.ok)
         throw new Error(result.error || `Ошибка моста печати (${response.status})`);
@@ -92,7 +94,7 @@ async function main() {
         const dataUrl = await renderCard(payload.type, employee);
         await setPreview(image, dataUrl);
         if (!requiresPhoto || selectedPhoto)
-            panels = await renderCardPanels(payload.type, employee);
+            panels = await renderCardObjects(payload.type, employee);
         setControlsBusy(false);
     };
     identifierSelect.addEventListener('change', async () => { selectedIdentifier = identifierSelect.value; try {
@@ -169,7 +171,7 @@ async function main() {
         printAttempted = true;
         status.textContent = 'Печать на IDP SMART… Дождитесь завершения задания.';
         try {
-            const result = await directPrint(panels.colorImageDataUrl, panels.blackImageDataUrl, payloadKey);
+            const result = await directPrint(panels, payloadKey);
             status.textContent = `Печать завершена на ${result.printer || 'IDP SMART'}.`;
             await chrome.storage.session.remove(payloadKey);
             window.setTimeout(() => window.close(), 900);
@@ -190,7 +192,7 @@ async function main() {
             status.textContent = 'Выберите исходный файл фотографии. До этого печать недоступна.';
         }
         else {
-            panels = await renderCardPanels(payload.type, employeeForRender());
+            panels = await renderCardObjects(payload.type, employeeForRender());
             status.textContent = 'Проверьте данные и нажмите «Печать».';
             setControlsBusy(false);
         }

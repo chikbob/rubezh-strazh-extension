@@ -6,8 +6,7 @@ test('print page sends the rendered PNG to the local SmartComm bridge',()=>{
   const source=fs.readFileSync(new URL('../extension-ts/print.ts',import.meta.url),'utf8');
   assert.match(source,/127\.0\.0\.1:18451/);
   assert.match(source,/POST/);
-  assert.match(source,/colorImageDataUrl/);
-  assert.match(source,/blackImageDataUrl/);
+  assert.match(source,/JSON\.stringify\(\{\.\.\.plan,jobId\}\)/);
   assert.match(source,/printButton\.addEventListener\('click'/);
   assert.match(source,/printButton\.disabled=busy\|\|!panels/);
   assert.doesNotMatch(source,/window\.print\s*\(/);
@@ -28,7 +27,7 @@ test('photo passes require a validated local source image before printing',()=>{
   assert.match(source,/ALLOWED_IMAGE_TYPES/);
   assert.match(source,/readAsDataURL\(file\)/);
   assert.match(source,/if\(isBusy\|\|!panels\|\|printAttempted\)return/);
-  assert.match(source,/renderCardPanels\(payload\.type,employee\)/);
+  assert.match(source,/renderCardObjects\(payload\.type,employee\)/);
   assert.match(html,/id="photo-file"[^>]*type="file"[^>]*accept="image\/jpeg,image\/png,image\/webp,image\/bmp,\.bmp"/);
   assert.match(html,/id="select-photo"/);
 });
@@ -47,9 +46,10 @@ test('Windows bridge uses the color panel and starts SmartComm printing',()=>{
   assert.match(source,/SmartCommEx_GetDeviceList2/);
   assert.match(source,/GetFirstDeviceDescription/);
   assert.match(source,/Format24bppRgb/);
-  assert.match(source,/DrawImage\(\$handle, 0, 1,/);
-  assert.match(source,/DrawImage\(\$handle, 0, 2,/);
-  assert.match(source,/DrawImage\(\$handle, 0, 1, 0, 0, 1012, 636,/);
+  assert.match(source,/DrawImage\(\$handle, 0, \$item\.panel,/);
+  assert.match(source,/DrawText\(\$handle, 0, 2,/);
+  assert.match(source,/\$item\.x\+\$item\.width -gt 506/);
+  assert.doesNotMatch(source,/DrawImage\(\$handle, 0, 1, 0, 0, 1012/);
   assert.match(source,/WaitForCompletion\(\$handle\)/);
   assert.doesNotMatch(source,/SetPanelDensity|SetJobMainDensity|RestoreJobMainDensity/);
   assert.match(source,/Smart51Profile\]::Verify\(\$jobSettings/);

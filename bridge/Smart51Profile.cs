@@ -72,6 +72,13 @@ public static class Smart51Profile {
             if (Value(expected, OemOffset, field) != Value(actual, OemOffset, field))
                 throw new InvalidOperationException("Driver did not confirm iDesigner setting: " + field + "; no print was sent.");
     }
+    public static bool Matches(byte[] expected, byte[] actual) {
+        ValidateDeviceSettings(expected);
+        ValidateDeviceSettings(actual);
+        foreach (string field in Fields)
+            if (Value(expected, OemOffset, field) != Value(actual, OemOffset, field)) return false;
+        return true;
+    }
     public static string Describe(byte[] settings) {
         ValidateDeviceSettings(settings);
         string result = "";

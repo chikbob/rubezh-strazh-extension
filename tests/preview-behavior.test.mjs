@@ -8,10 +8,10 @@ const code=ts.transpileModule(fs.readFileSync(new URL('../extension-ts/print.ts'
 async function preview(type='temporary'){
  const dom=new JSDOM(fs.readFileSync(new URL('../src/print.html',import.meta.url),'utf8'),{url:'https://extension.test/print.html?payload=printPayload-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',runScripts:'outside-only'});
  const w=dom.window,rendered=[],requests=[];
- let snapshot=structuredClone(employee),protocolVersion=4;
+ let snapshot=structuredClone(employee),protocolVersion=5;
  w.HTMLImageElement.prototype.decode=async()=>{};
  w.renderCard=async(type,data)=>{rendered.push(structuredClone(data));return 'data:image/png;base64,AA=='};
- w.renderCardPanels=async()=>({colorImageDataUrl:'color',blackImageDataUrl:'black'});
+ w.renderCardObjects=async()=>({objects:[{kind:'text',text:'Иванов'}]});
  w.chrome={storage:{session:{get:async key=>({[key]:{employee:structuredClone(employee),type,sourceTabId:42}}),remove:async()=>{}}},tabs:{sendMessage:async id=>{assert.equal(id,42);return{ok:true,employee:structuredClone(snapshot)}}}};
  w.fetch=async(url,options)=>{requests.push({url,options});return{ok:true,json:async()=>url.endsWith('/health')?{protocolVersion}:{ok:true,printer:'SMART-51'}}};
  w.setInterval=fn=>{w.poll=fn};w.setTimeout=()=>{};
@@ -30,6 +30,8 @@ test('new code refreshes an open preview and is sent only after confirmation',as
  button.click();await waitFor(()=>p.requests.length===2);
  assert.equal(p.rendered.at(-1).passNumber,'987654321');
  assert.equal(JSON.parse(p.requests[1].options.body).jobId,'printPayload-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+ assert.equal(/[\u0080-\uffff]/.test(p.requests[1].options.body),false,'HTTP body must have byte-safe escaped Cyrillic');
+ assert.equal(JSON.parse(p.requests[1].options.body).objects[0].text,'Иванов');
  button.click();await settle();assert.equal(p.requests.length,2);p.dom.window.close();
 });
 test('missing code and changed person block printing without using stale passNumber',async()=>{

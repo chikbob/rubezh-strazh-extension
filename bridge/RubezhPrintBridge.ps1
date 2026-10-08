@@ -24,6 +24,9 @@ public static class SmartSdk {
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_DrawImage")]
     public static extern uint DrawImage(IntPtr handle, byte page, byte panel, int x, int y, int width, int height, IntPtr imagePath, IntPtr area);
 
+    [DllImport("SmartComm2.dll", CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_DrawText")]
+    public static extern uint DrawText(IntPtr handle, byte page, byte panel, int x, int y, string font, int fontSize, byte style, string text, IntPtr area);
+
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_GetRibbonInfo")]
     public static extern uint GetRibbonInfo(IntPtr handle, ref int type, ref int maximum, ref int remaining, ref int grade);
 
@@ -175,24 +178,48 @@ function Convert-ToOpaqueBitmap([string]$dataUrl, [string]$name, [int]$width, [i
     return $bmpPath
 }
 
-function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
+function Assert-PrintObjects($objects) {
+    if (@($objects).Count -lt 2 -or @($objects).Count -gt 24) { throw 'Invalid native print object count.' }
+    $hasColor = $false
+    $hasIdentifier = $false
+    foreach ($item in $objects) {
+        foreach ($name in @('x','y','panel')) {
+            if ($null -eq $item.$name -or $item.$name -ne [int]$item.$name) { throw 'Invalid native object coordinates.' }
+        }
+        if ($item.x -lt 0 -or $item.y -lt 0 -or $item.x -ge 1012 -or $item.y -ge 636) { throw 'Native object is outside the card.' }
+        if ($item.kind -eq 'image') {
+            if ($item.panel -notin @(1,2) -or $item.width -le 0 -or $item.height -le 0 -or $item.width -ne [int]$item.width -or $item.height -ne [int]$item.height -or $item.x+$item.width -gt 1012 -or $item.y+$item.height -gt 636) { throw 'Invalid image bounds.' }
+            if ($item.panel -eq 1) {
+                if ($item.x+$item.width -gt 506) { throw 'Color object exceeds the hYMCKO half-panel; no print was sent.' }
+                $hasColor = $true
+            }
+            if (-not ([string]$item.dataUrl).StartsWith('data:image/png;base64,')) { throw 'Native objects require PNG images.' }
+        } elseif ($item.kind -eq 'text') {
+            if ($item.panel -ne 2 -or $item.fontSize -lt 18 -or $item.fontSize -gt 104 -or $item.fontSize -ne [int]$item.fontSize -or -not $item.text -or $item.text.Length -gt 512 -or $item.text -match '[\x00-\x1f]') { throw 'Invalid native text object.' }
+            if ($item.text -match '^\d{6,12}$') { $hasIdentifier = $true }
+        } else { throw 'Unknown native object type.' }
+    }
+    if (-not $hasColor -or -not $hasIdentifier) { throw 'Native print plan is missing color objects or the identifier.' }
+}
+
+function Invoke-CardPrint($objects) {
     if ($script:printerNeedsCheck) { throw 'Previous print was not confirmed. Check the printer display and ribbon, then restart the bridge while the printer is idle. No new print was sent.' }
     # Validate the shipped export before opening or moving the printer.
     $profile = [Smart51Profile]::Load((Join-Path $bridgeDir 'sotrudnikiHymcko.sd1'))
+    Assert-PrintObjects $objects
     $originalSettings = $null
     $settingsTouched = $false
     $printWasSent = $false
     $printCompleted = $false
-    $colorPath = $null
-    $blackPath = $null
+    $imagePaths = @{}
     $handle = [IntPtr]::Zero
     $devicePtr = [IntPtr]::Zero
-    $colorPtr = [IntPtr]::Zero
-    $blackPtr = [IntPtr]::Zero
     $rectPtr = [IntPtr]::Zero
     try {
-        $colorPath = Convert-ToOpaqueBitmap $colorDataUrl 'rubezh-color' 1012 638
-        $blackPath = Convert-ToOpaqueBitmap $blackDataUrl 'rubezh-black' 1012 638
+        for ($i = 0; $i -lt @($objects).Count; $i++) {
+            $item = $objects[$i]
+            if ($item.kind -eq 'image') { $imagePaths[$i] = Convert-ToOpaqueBitmap $item.dataUrl ('rubezh-object-' + $i) $item.width $item.height }
+        }
         $printer = Get-SmartPrinter
         $devicePtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($printer)
         [SmartSdk]::ValidateDevice($devicePtr)
@@ -211,27 +238,36 @@ function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
         $originalSettings = [SmartSdk]::ReadSettings($handle)
         Write-BridgeLog ('Original driver settings: ' + [Smart51Profile]::Describe($originalSettings))
         $jobSettings = [Smart51Profile]::Prepare($originalSettings, $profile, $ribbonType)
-        $settingsTouched = $true
-        [SmartSdk]::WriteSettings($handle, $jobSettings)
+        # The supplied log shows the installed defaults already match. Do not
+        # write/reset an identical profile around every card.
+        if (-not [Smart51Profile]::Matches($jobSettings, $originalSettings)) {
+            $settingsTouched = $true
+            [SmartSdk]::WriteSettings($handle, $jobSettings)
+        }
         [Smart51Profile]::Verify($jobSettings, [SmartSdk]::ReadSettings($handle))
         Write-BridgeLog ('Verified iDesigner job settings: ' + [Smart51Profile]::Describe($jobSettings))
         Write-BridgeLog "Print started: printer=$printer; profile=sotrudnikiHymcko.sd1; ribbonResult=$ribbonResult ribbonType=$ribbonType ribbonRemaining=$ribbonRemaining ribbonMaximum=$ribbonMaximum ribbonGrade=$ribbonGrade"
 
-        $colorPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($colorPath)
-        $blackPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($blackPath)
         $rect = New-Object SmartSdk+RECT
         $rectPtr = [Runtime.InteropServices.Marshal]::AllocHGlobal([Runtime.InteropServices.Marshal]::SizeOf($rect))
         [Runtime.InteropServices.Marshal]::StructureToPtr($rect, $rectPtr, $false)
-        # Keep full opaque inputs, but draw inside IDP's documented native
-        # SMART-51 grid (1012 x 636). Partial mode comes from the verified profile.
-        $result = [SmartSdk]::DrawImage($handle, 0, 1, 0, 0, 1012, 636, $colorPtr, $rectPtr)
-        if ($result -ne 0) { throw "SmartComm could not draw the color panel (code $result)." }
-        $drawn = [Runtime.InteropServices.Marshal]::PtrToStructure($rectPtr, [type][SmartSdk+RECT])
-        Write-BridgeLog "Color drawing: left=$($drawn.Left) top=$($drawn.Top) right=$($drawn.Right) bottom=$($drawn.Bottom)"
-        $result = [SmartSdk]::DrawImage($handle, 0, 2, 0, 0, 1012, 636, $blackPtr, $rectPtr)
-        if ($result -ne 0) { throw "SmartComm could not draw the black panel (code $result)." }
-        $drawn = [Runtime.InteropServices.Marshal]::PtrToStructure($rectPtr, [type][SmartSdk+RECT])
-        Write-BridgeLog "Black drawing: left=$($drawn.Left) top=$($drawn.Top) right=$($drawn.Right) bottom=$($drawn.Bottom)"
+        # Native SDK objects, not a full-card YMC raster. Blank text-side pixels
+        # must not enlarge the color print area beyond the half-length ribbon.
+        for ($i = 0; $i -lt @($objects).Count; $i++) {
+            $item = $objects[$i]
+            if ($item.kind -eq 'image') {
+                $imagePtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($imagePaths[$i])
+                try { $result = [SmartSdk]::DrawImage($handle, 0, $item.panel, $item.x, $item.y, $item.width, $item.height, $imagePtr, $rectPtr) }
+                finally { [Runtime.InteropServices.Marshal]::FreeHGlobal($imagePtr) }
+            } else {
+                $style = if ($item.bold) { 1 } else { 0 }
+                $result = [SmartSdk]::DrawText($handle, 0, 2, $item.x, $item.y, 'Arial', (-[int]$item.fontSize), $style, $item.text, $rectPtr)
+            }
+            if ($result -ne 0) { throw "SmartComm could not draw native object $i (code $result)." }
+            $drawn = [Runtime.InteropServices.Marshal]::PtrToStructure($rectPtr, [type][SmartSdk+RECT])
+            if ($drawn.Left -lt 0 -or $drawn.Top -lt 0 -or $drawn.Right -gt 1012 -or $drawn.Bottom -gt 636 -or ($item.panel -eq 1 -and $drawn.Right -gt 506)) { throw 'SDK object bounds exceed the card or hYMCKO color area; no print was sent.' }
+            Write-BridgeLog "Native object: index=$i kind=$($item.kind) panel=$($item.panel) left=$($drawn.Left) top=$($drawn.Top) right=$($drawn.Right) bottom=$($drawn.Bottom)"
+        }
         $printWasSent = $true
         $script:printerNeedsCheck = $true
         $result = [SmartSdk]::Print($handle)
@@ -261,10 +297,8 @@ function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
             catch { Write-BridgeLog ('Close device failed: ' + $_.Exception.Message) }
         }
         if ($devicePtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($devicePtr) }
-        if ($colorPtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($colorPtr) }
-        if ($blackPtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($blackPtr) }
         if ($rectPtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($rectPtr) }
-        foreach ($path in @($colorPath,$blackPath)) { if ($path) { Remove-Item $path -Force -ErrorAction SilentlyContinue } }
+        foreach ($path in $imagePaths.Values) { if ($path) { Remove-Item $path -Force -ErrorAction SilentlyContinue } }
     }
 }
 
@@ -277,7 +311,7 @@ function Invoke-PrintRequest($payload, [hashtable]$jobs) {
         # never cause the same card to consume a second set of panels.
         $jobs[$jobId] = @{ ok = $false; error = 'Print completion is unknown. Check the printer before repeating.' }
         Write-BridgeLog ('Job started: ' + $jobId)
-        try { $jobs[$jobId] = Invoke-CardPrint $payload.colorImageDataUrl $payload.blackImageDataUrl; Write-BridgeLog ('Job completed: ' + $jobId) }
+        try { $jobs[$jobId] = Invoke-CardPrint $payload.objects; Write-BridgeLog ('Job completed: ' + $jobId) }
         catch { $jobs[$jobId] = @{ ok = $false; error = $_.Exception.Message }; Write-BridgeLog ('Job ' + $jobId + ' failed: ' + $_.Exception.ToString()) }
     } else { Write-BridgeLog ('Duplicate job ignored: ' + $jobId) }
     return $jobs[$jobId]
@@ -313,7 +347,7 @@ while ($true) {
         if ($requestLine -match '^OPTIONS ') {
             Send-Response $stream 200 '{"ok":true}'
         } elseif ($requestLine -match '^GET /health ') {
-            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 4 } | ConvertTo-Json -Compress)
+            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 5 } | ConvertTo-Json -Compress)
         } elseif ($requestLine -match '^POST /print ' -and $contentLength -gt 0 -and $contentLength -le 16777216) {
             $chars = New-Object char[] $contentLength
             $read = 0
