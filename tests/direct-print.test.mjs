@@ -49,9 +49,10 @@ test('Windows bridge uses the color panel and starts SmartComm printing',()=>{
   assert.match(source,/Format24bppRgb/);
   assert.match(source,/DrawImage\(\$handle, 0, 1,/);
   assert.match(source,/DrawImage\(\$handle, 0, 2,/);
-  assert.match(source,/DrawImage\(\$handle, 0, 1, 0, 0, 1012, 638,/);
+  assert.match(source,/DrawImage\(\$handle, 0, 1, 0, 0, 1012, 636,/);
   assert.match(source,/WaitForCompletion\(\$handle\)/);
-  assert.doesNotMatch(source,/SetPanelDensity|SetPrinterSettings|SetJobMainDensity|RestoreJobMainDensity/);
+  assert.doesNotMatch(source,/SetPanelDensity|SetJobMainDensity|RestoreJobMainDensity/);
+  assert.match(source,/Smart51Profile\]::Verify\(\$jobSettings/);
   assert.match(source,/SmartComm_GetRibbonInfo/);
   assert.match(source,/ribbonType=\$ribbonType/);
   assert.match(source,/bridge\.log/);

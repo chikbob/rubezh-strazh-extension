@@ -3,7 +3,7 @@ const BRIDGE = 'http://127.0.0.1:18451';
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/bmp']);
 async function directPrint(colorImageDataUrl, blackImageDataUrl, jobId) {
     const health = await fetch(`${BRIDGE}/health`).then(response => response.json());
-    if (health.protocolVersion !== 3)
+    if (health.protocolVersion !== 4)
         throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии, когда принтер не печатает. Старый мост не используется.');
     const response = await fetch(`${BRIDGE}/print`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ colorImageDataUrl, blackImageDataUrl, jobId }) });
     const result = await response.json();

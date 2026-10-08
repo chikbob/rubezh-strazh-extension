@@ -7,6 +7,8 @@ Start-Sleep -Milliseconds 500
 
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 Copy-Item (Join-Path $PSScriptRoot 'RubezhPrintBridge.ps1') $installDir -Force
+Copy-Item (Join-Path $PSScriptRoot 'Smart51Profile.cs') $installDir -Force
+Copy-Item (Join-Path $PSScriptRoot 'sotrudnikiHymcko.sd1') $installDir -Force
 Copy-Item (Join-Path $PSScriptRoot 'autostart.ps1') $installDir -Force
 Copy-Item (Join-Path $PSScriptRoot 'enable-autostart.cmd') $installDir -Force
 Copy-Item (Join-Path $PSScriptRoot 'disable-autostart.cmd') $installDir -Force
@@ -22,6 +24,9 @@ $dll = Get-ChildItem $searchRoots -Filter SmartComm2.dll -Recurse -ErrorAction S
 } | Select-Object -First 1
 if (-not $dll) { throw 'SmartComm2.dll was not found. Install SMART IDesigner first.' }
 Copy-Item $dll.FullName $installDir -Force
+if (Test-Path (Join-Path $dll.DirectoryName 'SmartComm2.ini')) {
+    Copy-Item (Join-Path $dll.DirectoryName 'SmartComm2.ini') $installDir -Force
+}
 Get-ChildItem $dll.DirectoryName -Filter '*.icm' -ErrorAction SilentlyContinue | Copy-Item -Destination $installDir -Force
 
 $powerShell32 = Join-Path $env:WINDIR 'SysWOW64\WindowsPowerShell\v1.0\powershell.exe'

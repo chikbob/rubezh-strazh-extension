@@ -8,6 +8,8 @@ foreach ($file in @('bridge/RubezhPrintBridge.ps1','bridge/install.ps1','bridge/
 $source = Get-Content (Join-Path $root 'bridge/RubezhPrintBridge.ps1') -Raw
 $kernel = [regex]::Match($source, "(?s)\`$kernelSource = @'\r?\n(.*?)\r?\n'@").Groups[1].Value
 if (-not $kernel) { throw 'SDK wrapper source was not found.' }
+Add-Type -Path (Join-Path $root 'bridge/Smart51Profile.cs')
+$bridgeDir = Join-Path $root 'bridge'
 
 # Execute the real wait/state logic with no DLL or physical printer attached.
 $testSource = @'
@@ -51,30 +53,46 @@ public static class FakeSmartSdk {
     public struct RECT { public int Left, Top, Right, Bottom; }
     public static int Opened, Closed, Printed, Waited;
     public static string FailAt = "";
+    public static byte[] Settings;
+    public static int SettingsWritten;
     public static ulong Status;
     public static void ValidateDevice(IntPtr device) {}
     public static uint OpenDevice(ref IntPtr handle, IntPtr device, int type) { Opened++; handle = new IntPtr(1); return 0; }
     public static ulong ReadStatus(IntPtr handle) { return Status; }
     public static bool IsIdle(ulong value) { return SmartSdk.IsIdle(value); }
     public static uint GetRibbonInfo(IntPtr handle, ref int type, ref int maximum, ref int remaining, ref int grade) {
-        type = 2; maximum = 350; remaining = 310; grade = 1; return 0;
+        type = FailAt == "ribbonType" ? 3 : 2; maximum = 350; remaining = 310; grade = 1; return 0;
     }
+    public static byte[] ReadSettings(IntPtr handle) {
+        byte[] result = (byte[])Settings.Clone();
+        if (FailAt == "verify" && SettingsWritten > 0) result[796] = 99;
+        return result;
+    }
+    public static void WriteSettings(IntPtr handle, byte[] settings) { SettingsWritten++; Settings = (byte[])settings.Clone(); }
     public static uint DrawImage(IntPtr handle, byte page, byte panel, int x, int y, int width, int height, IntPtr path, IntPtr area) {
-        if (panel == 1 && (x != 0 || y != 0 || width != 1012 || height != 638)) throw new Exception("Color bounds mismatch");
-        if (panel == 2 && (x != 0 || y != 0 || width != 1012 || height != 638)) throw new Exception("Black bounds mismatch");
+        if (panel == 1 && (x != 0 || y != 0 || width != 1012 || height != 636)) throw new Exception("Color bounds mismatch");
+        if (panel == 2 && (x != 0 || y != 0 || width != 1012 || height != 636)) throw new Exception("Black bounds mismatch");
         Marshal.StructureToPtr(new RECT { Left = x, Top = y, Right = x + width, Bottom = y + height }, area, false);
         return FailAt == "black" && panel == 2 ? 1u : 0u;
     }
-    public static uint Print(IntPtr handle) { Printed++; return 0; }
+    public static uint Print(IntPtr handle) { Printed++; if (FailAt == "printFault") { Status = 0x4000000000UL; return 0x8000001Bu; } return 0; }
     public static void WaitForCompletion(IntPtr handle) {
         Waited++;
-        SmartSdk.WaitForIdle(() => FailAt == "wait" ? 0x4000000000UL : 0UL, () => {}, 10, 3);
+        if (FailAt == "wait") Status = 0x4000000000UL;
+        SmartSdk.WaitForIdle(() => Status, () => {}, 10, 3);
     }
     public static uint CloseDevice(IntPtr handle) { Closed++; return 0; }
 }
 '@
 Add-Type -TypeDefinition ($kernel + "`n" + $testSource) -Language CSharp
 Write-Host ('Bridge status/sequence checks passed: ' + [BridgeStatusTests]::Run())
+
+# A real exported profile and a synthetic native DEVMODE. Never load the DLL.
+$profile = [Smart51Profile]::Load((Join-Path $bridgeDir 'sotrudnikiHymcko.sd1'))
+$settings = New-Object byte[] (784 + 12976)
+$settings[68] = 220
+[Array]::Copy($profile, 8, $settings, 784, 12976)
+[FakeSmartSdk]::Settings = $settings
 
 # Exercise the actual PowerShell job/cache/finally blocks with a fake native
 # device; no ribbon movement or print command is sent to any real printer.
@@ -92,6 +110,53 @@ function Convert-ToOpaqueBitmap([string]$data, [string]$name, [int]$width, [int]
     return $path
 }
 function Assert-Bridge([bool]$value, [string]$name) { if (-not $value) { throw $name } }
+
+Assert-Bridge ([Runtime.InteropServices.Marshal]::OffsetOf([Smart51Profile+PrintingSettings], 'Ribbon').ToInt32() -eq 4288) 'SDK ribbon layout changed'
+Assert-Bridge ([Runtime.InteropServices.Marshal]::OffsetOf([Smart51Profile+PrintingSettings], 'Resolution').ToInt32() -eq 112) 'SDK resolution layout changed'
+$original = [byte[]]$settings.Clone()
+# Keep opaque driver data unchanged, including encoding/calibration/reserved data.
+$original[0] = 42
+$original[784 + 116] = 61
+$original[784 + 4400] = 77
+$original[796] = 30
+$prepared = [Smart51Profile]::Prepare($original, $profile, 2)
+Assert-Bridge ($prepared[796] -eq 0) 'Saved zero density was not applied'
+Assert-Bridge ($original[796] -eq 30) 'Prepare mutated the original settings'
+Assert-Bridge ($prepared[0] -eq 42 -and $prepared[784 + 116] -eq 61 -and $prepared[784 + 4400] -eq 77) 'Opaque native fields were overwritten'
+$allowed = [Collections.Generic.HashSet[int]]::new()
+foreach ($field in [Smart51Profile]::Fields) {
+    $offset = 784 + [Runtime.InteropServices.Marshal]::OffsetOf([Smart51Profile+PrintingSettings], $field).ToInt32()
+    0..3 | ForEach-Object { [void]$allowed.Add($offset + $_) }
+}
+for ($i = 0; $i -lt $original.Length; $i++) {
+    if (-not $allowed.Contains($i)) { Assert-Bridge ($prepared[$i] -eq $original[$i]) 'Non-print field changed' }
+}
+foreach ($bad in @('signature','size','version','dmSize','short','ribbon','readback')) {
+    $invalid = [byte[]]$settings.Clone()
+    switch ($bad) {
+        'signature' { $invalid[788] = 0 }
+        'size' { $invalid[784] = 0 }
+        'version' { $invalid[792] = 2 }
+        'dmSize' { $invalid[68] = 0 }
+        'short' { $invalid = New-Object byte[] 200 }
+        'readback' { $invalid[796] = 17 }
+    }
+    $failed = $false
+    try {
+        if ($bad -eq 'readback') { [Smart51Profile]::Verify($settings, $invalid) }
+        else { [void][Smart51Profile]::Prepare($invalid, $profile, $(if ($bad -eq 'ribbon') { 3 } else { 2 })) }
+    } catch { $failed = $true }
+    Assert-Bridge $failed ('Unsafe profile was accepted: ' + $bad)
+}
+$corruptPath = [IO.Path]::GetTempFileName()
+try {
+    $corrupt = [byte[]]$profile.Clone(); $corrupt[20] = 30
+    [IO.File]::WriteAllBytes($corruptPath, $corrupt)
+    $failed = $false
+    try { [void][Smart51Profile]::Load($corruptPath) } catch { $failed = $true }
+    Assert-Bridge $failed 'Tampered density profile was accepted'
+} finally { Remove-Item $corruptPath }
+Write-Host 'Profile tests passed: real export, named SDK layout, full preservation, mismatch/readback rejection and integrity check.'
 $jobs = @{}
 for ($i = 0; $i -lt 100; $i++) {
     $payload = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); colorImageDataUrl = 'color'; blackImageDataUrl = 'black' }
@@ -101,14 +166,24 @@ for ($i = 0; $i -lt 100; $i++) {
 Assert-Bridge ([FakeSmartSdk]::Printed -eq 100) '200 HTTP requests must print only 100 cards'
 Assert-Bridge ([FakeSmartSdk]::Waited -eq 100) 'Every accepted print waits for completion'
 Assert-Bridge ([FakeSmartSdk]::Opened -eq [FakeSmartSdk]::Closed) 'Handles must be closed after success'
-foreach ($failure in @('black','wait','busy')) {
+foreach ($failure in @('black','wait','busy','verify','ribbonType','printFault')) {
+    $script:printerNeedsCheck = $false
     [FakeSmartSdk]::FailAt = $failure
+    [FakeSmartSdk]::SettingsWritten = 0
     [FakeSmartSdk]::Status = if ($failure -eq 'busy') { 0x200 } else { 0 }
     $payload = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); colorImageDataUrl = 'color'; blackImageDataUrl = 'black' }
+    $beforePrint = [FakeSmartSdk]::Printed
     Assert-Bridge (-not (Invoke-PrintRequest $payload $jobs).ok) ('Failure must not return success: ' + $failure)
+    if ($failure -in @('verify','ribbonType','busy','black')) { Assert-Bridge ([FakeSmartSdk]::Printed -eq $beforePrint) 'Preflight failure sent a print command' }
+    if ($failure -in @('wait','printFault')) { Assert-Bridge ([FakeSmartSdk]::SettingsWritten -eq 1) 'Settings changed after ribbon fault' }
     $before = [FakeSmartSdk]::Printed
     Assert-Bridge (-not (Invoke-PrintRequest $payload $jobs).ok) 'Repeated failed job is not retried'
     Assert-Bridge ([FakeSmartSdk]::Printed -eq $before) 'Failure retry consumed another panel'
+    if ($failure -in @('wait','printFault')) {
+        $other = @{ jobId = 'printPayload-' + [guid]::NewGuid().ToString(); colorImageDataUrl = 'color'; blackImageDataUrl = 'black' }
+        Assert-Bridge (-not (Invoke-PrintRequest $other $jobs).ok) 'A new window must not bypass unconfirmed-print lock'
+        Assert-Bridge ([FakeSmartSdk]::Printed -eq $before) 'Unconfirmed-print lock sent another print'
+    }
 }
 Assert-Bridge ([FakeSmartSdk]::Opened -eq [FakeSmartSdk]::Closed) 'Handles must be closed after failures'
 foreach ($path in $createdFiles) { Assert-Bridge (-not (Test-Path $path)) 'Panel temporary file leaked' }

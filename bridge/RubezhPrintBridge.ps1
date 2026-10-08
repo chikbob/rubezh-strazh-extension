@@ -39,6 +39,34 @@ public static class SmartSdk {
     [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_CloseDevice")]
     public static extern uint CloseDevice(IntPtr handle);
 
+    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_GetPrinterSettings2")]
+    private static extern uint GetPrinterSettings(IntPtr handle, IntPtr settings, ref int length);
+
+    [DllImport("SmartComm2.dll", CallingConvention = CallingConvention.Winapi, EntryPoint = "SmartComm_SetPrinterSettings2")]
+    private static extern uint SetPrinterSettings(IntPtr handle, IntPtr settings, int length);
+
+    public static byte[] ReadSettings(IntPtr handle) {
+        int length = 65536;
+        IntPtr buffer = Marshal.AllocHGlobal(length);
+        try {
+            uint result = GetPrinterSettings(handle, buffer, ref length);
+            if (result != 0 || length < 220 || length > 65536)
+                throw new InvalidOperationException("Cannot read driver settings (code " + result + ", bytes=" + length + ").");
+            byte[] settings = new byte[length];
+            Marshal.Copy(buffer, settings, 0, length);
+            return settings;
+        } finally { Marshal.FreeHGlobal(buffer); }
+    }
+
+    public static void WriteSettings(IntPtr handle, byte[] settings) {
+        IntPtr buffer = Marshal.AllocHGlobal(settings.Length);
+        try {
+            Marshal.Copy(settings, 0, buffer, settings.Length);
+            uint result = SetPrinterSettings(handle, buffer, settings.Length);
+            if (result != 0) throw new InvalidOperationException("Cannot apply driver settings (code " + result + ").");
+        } finally { Marshal.FreeHGlobal(buffer); }
+    }
+
     public static void ValidateDevice(IntPtr device) {
         IntPtr info = Marshal.AllocHGlobal(4096);
         try {
@@ -104,6 +132,7 @@ public static class SmartSdk {
 }
 '@
 
+Add-Type -Path (Join-Path $bridgeDir 'Smart51Profile.cs')
 Add-Type -TypeDefinition $kernelSource -Language CSharp
 [SmartSdk]::SetDllDirectory($bridgeDir) | Out-Null
 
@@ -147,6 +176,13 @@ function Convert-ToOpaqueBitmap([string]$dataUrl, [string]$name, [int]$width, [i
 }
 
 function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
+    if ($script:printerNeedsCheck) { throw 'Previous print was not confirmed. Check the printer display and ribbon, then restart the bridge while the printer is idle. No new print was sent.' }
+    # Validate the shipped export before opening or moving the printer.
+    $profile = [Smart51Profile]::Load((Join-Path $bridgeDir 'sotrudnikiHymcko.sd1'))
+    $originalSettings = $null
+    $settingsTouched = $false
+    $printWasSent = $false
+    $printCompleted = $false
     $colorPath = $null
     $blackPath = $null
     $handle = [IntPtr]::Zero
@@ -172,32 +208,55 @@ function Invoke-CardPrint([string]$colorDataUrl, [string]$blackDataUrl) {
         $ribbonResult = [SmartSdk]::GetRibbonInfo($handle, [ref]$ribbonType, [ref]$ribbonMaximum, [ref]$ribbonRemaining, [ref]$ribbonGrade)
         if ($ribbonResult -ne 0) { throw "Cannot check ribbon (code $ribbonResult)." }
         if ($ribbonRemaining -le 0) { throw 'The ribbon is empty.' }
-        Write-BridgeLog "Print started: printer=$printer; settings=unchanged; ribbonResult=$ribbonResult ribbonType=$ribbonType ribbonRemaining=$ribbonRemaining ribbonMaximum=$ribbonMaximum ribbonGrade=$ribbonGrade"
+        $originalSettings = [SmartSdk]::ReadSettings($handle)
+        Write-BridgeLog ('Original driver settings: ' + [Smart51Profile]::Describe($originalSettings))
+        $jobSettings = [Smart51Profile]::Prepare($originalSettings, $profile, $ribbonType)
+        $settingsTouched = $true
+        [SmartSdk]::WriteSettings($handle, $jobSettings)
+        [Smart51Profile]::Verify($jobSettings, [SmartSdk]::ReadSettings($handle))
+        Write-BridgeLog ('Verified iDesigner job settings: ' + [Smart51Profile]::Describe($jobSettings))
+        Write-BridgeLog "Print started: printer=$printer; profile=sotrudnikiHymcko.sd1; ribbonResult=$ribbonResult ribbonType=$ribbonType ribbonRemaining=$ribbonRemaining ribbonMaximum=$ribbonMaximum ribbonGrade=$ribbonGrade"
 
         $colorPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($colorPath)
         $blackPtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($blackPath)
         $rect = New-Object SmartSdk+RECT
         $rectPtr = [Runtime.InteropServices.Marshal]::AllocHGlobal([Runtime.InteropServices.Marshal]::SizeOf($rect))
         [Runtime.InteropServices.Marshal]::StructureToPtr($rect, $rectPtr, $false)
-        # Both inputs cover the full card with an explicit white background.
-        # The driver/profile handles hYMCKO; do not crop the SDK color surface.
-        $result = [SmartSdk]::DrawImage($handle, 0, 1, 0, 0, 1012, 638, $colorPtr, $rectPtr)
+        # Keep full opaque inputs, but draw inside IDP's documented native
+        # SMART-51 grid (1012 x 636). Partial mode comes from the verified profile.
+        $result = [SmartSdk]::DrawImage($handle, 0, 1, 0, 0, 1012, 636, $colorPtr, $rectPtr)
         if ($result -ne 0) { throw "SmartComm could not draw the color panel (code $result)." }
         $drawn = [Runtime.InteropServices.Marshal]::PtrToStructure($rectPtr, [type][SmartSdk+RECT])
         Write-BridgeLog "Color drawing: left=$($drawn.Left) top=$($drawn.Top) right=$($drawn.Right) bottom=$($drawn.Bottom)"
-        $result = [SmartSdk]::DrawImage($handle, 0, 2, 0, 0, 1012, 638, $blackPtr, $rectPtr)
+        $result = [SmartSdk]::DrawImage($handle, 0, 2, 0, 0, 1012, 636, $blackPtr, $rectPtr)
         if ($result -ne 0) { throw "SmartComm could not draw the black panel (code $result)." }
         $drawn = [Runtime.InteropServices.Marshal]::PtrToStructure($rectPtr, [type][SmartSdk+RECT])
         Write-BridgeLog "Black drawing: left=$($drawn.Left) top=$($drawn.Top) right=$($drawn.Right) bottom=$($drawn.Bottom)"
+        $printWasSent = $true
+        $script:printerNeedsCheck = $true
         $result = [SmartSdk]::Print($handle)
         if ($result -ne 0) { throw "SmartComm rejected the print job (code $result)." }
         Write-BridgeLog "Print accepted by SmartComm: result=$result ribbonType=$ribbonType ribbonRemaining=$ribbonRemaining"
         [SmartSdk]::WaitForCompletion($handle)
-        Write-BridgeLog ('Print completed; finalStatus=0x{0:X16}' -f [SmartSdk]::ReadStatus($handle))
+        $finalStatus = [SmartSdk]::ReadStatus($handle)
+        if (-not [SmartSdk]::IsIdle($finalStatus)) { throw 'Printer became busy after the completion check.' }
+        $printCompleted = $true
+        $script:printerNeedsCheck = $false
+        Write-BridgeLog ('Print completed; finalStatus=0x{0:X16}' -f $finalStatus)
         return @{ ok = $true; printer = $printer; ribbonType = $ribbonType; ribbonRemaining = $ribbonRemaining }
     }
     finally {
         if ($handle -ne [IntPtr]::Zero) {
+            if ($settingsTouched) {
+                try {
+                    # Never change settings during motion or after a ribbon fault.
+                    if ((-not $printWasSent -or $printCompleted) -and [SmartSdk]::IsIdle([SmartSdk]::ReadStatus($handle))) {
+                        [SmartSdk]::WriteSettings($handle, $originalSettings)
+                        [Smart51Profile]::Verify($originalSettings, [SmartSdk]::ReadSettings($handle))
+                        Write-BridgeLog 'Original driver settings restored while idle.'
+                    } else { Write-BridgeLog 'Settings restore skipped: printer is busy or print completion is unconfirmed.' }
+                } catch { Write-BridgeLog ('Settings restore skipped or failed: ' + $_.Exception.Message) }
+            }
             try { Write-BridgeLog ('Close device: result=' + [SmartSdk]::CloseDevice($handle)) }
             catch { Write-BridgeLog ('Close device failed: ' + $_.Exception.Message) }
         }
@@ -254,7 +313,7 @@ while ($true) {
         if ($requestLine -match '^OPTIONS ') {
             Send-Response $stream 200 '{"ok":true}'
         } elseif ($requestLine -match '^GET /health ') {
-            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 3 } | ConvertTo-Json -Compress)
+            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 4 } | ConvertTo-Json -Compress)
         } elseif ($requestLine -match '^POST /print ' -and $contentLength -gt 0 -and $contentLength -le 16777216) {
             $chars = New-Object char[] $contentLength
             $read = 0
