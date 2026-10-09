@@ -1,4 +1,5 @@
 import { renderCard, renderCardObjects, renderNativePhoto } from './renderer.js';
+import { prepareNativePosition } from './nativePosition.js';
 const BRIDGE = 'http://127.0.0.1:18451';
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/bmp']);
 async function directPrint(plan, jobId) {
@@ -59,6 +60,8 @@ async function main() {
     const photoName = document.querySelector('#photo-name');
     const identifierStep = document.querySelector('#identifier-step');
     const identifierSelect = document.querySelector('#identifier-select');
+    const positionStep = document.querySelector('#position-step');
+    const positionInput = document.querySelector('#position-text');
     let panels;
     let isBusy = false;
     let printAttempted = false;
@@ -67,6 +70,9 @@ async function main() {
         return;
     }
     const requiresPhoto = payload.type === 'employee' || payload.type === 'mosn';
+    positionStep.hidden = !requiresPhoto;
+    if (requiresPhoto)
+        positionInput.value = prepareNativePosition(payload.employee.position || '').text;
     let identifiers = Array.from(new Set(payload.employee.identifiers || []));
     let currentCardAvailable = false;
     let selectedIdentifier = identifiers[0];
@@ -78,6 +84,8 @@ async function main() {
         selectPhotoButton.disabled = busy;
         photoInput.disabled = busy;
         identifierSelect.disabled = busy;
+        positionInput.disabled = busy;
+        document.querySelector('#apply-position').disabled = busy || printAttempted;
         printButton.disabled = busy || !panels || !selectedIdentifier || !currentCardAvailable || printAttempted;
     };
     const updateIdentifierOptions = () => {
@@ -107,12 +115,29 @@ async function main() {
         if (!requiresPhoto)
             panels = { passType: payload.type, ...await renderCardObjects(payload.type, employee) };
         else if (selectedPhoto) {
-            const plan = { passType: payload.type, surname: employee.surname, name: employee.name, patronymic: employee.patronymic || '', position: employee.position || '', employeeNumber: employee.employeeNumber || '', passNumber: employee.passNumber || '', photoDataUrl: await renderNativePhoto(selectedPhoto.dataUrl) };
+            const position = prepareNativePosition(positionInput.value);
+            positionInput.value = position.text;
+            if (!position.fits)
+                throw new Error('Должность не помещается в строку шаблона. Сократите поле «Должность на пропуске» и нажмите «Применить». Размер шрифта не изменён.');
+            const plan = { passType: payload.type, surname: employee.surname, name: employee.name, patronymic: employee.patronymic || '', position: position.text, employeeNumber: employee.employeeNumber || '', passNumber: employee.passNumber || '', photoDataUrl: await renderNativePhoto(selectedPhoto.dataUrl) };
             await setPreview(image, await prepareNativePreview(plan));
             panels = plan;
         }
         setControlsBusy(false);
     };
+    positionInput.addEventListener('input', () => { panels = undefined; printButton.disabled = true; status.textContent = 'Должность изменена. Нажмите «Применить», чтобы обновить предпросмотр.'; });
+    document.querySelector('#apply-position').addEventListener('click', async () => {
+        if (isBusy || printAttempted)
+            return;
+        try {
+            await rerender();
+            status.textContent = selectedPhoto ? 'Проверьте обновлённую должность и нажмите «Печать».' : 'Выберите исходный файл фотографии.';
+        }
+        catch (error) {
+            status.textContent = String(error);
+            setControlsBusy(false);
+        }
+    });
     identifierSelect.addEventListener('change', async () => { selectedIdentifier = identifierSelect.value; try {
         await rerender();
         status.textContent = requiresPhoto && !selectedPhoto ? 'Выберите исходный файл фотографии. До этого печать недоступна.' : 'Проверьте данные и нажмите «Печать».';

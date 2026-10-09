@@ -15,6 +15,7 @@ async function preview(type='temporary'){
  w.renderCard=async(type,data)=>{rendered.push(structuredClone(data));return 'data:image/png;base64,AA=='};
  w.renderCardObjects=async()=>({objects:[{kind:'text',text:'Иванов'}]});
  w.renderNativePhoto=async()=> 'data:image/png;base64,AA==';
+ w.prepareNativePosition=input=>({text:input,fits:input.length<60,changed:false});
  w.chrome={storage:{session:{get:async key=>({[key]:{employee:structuredClone(employee),type,sourceTabId:42}}),remove:async()=>{}}},tabs:{sendMessage:async id=>{assert.equal(id,42);return{ok:true,employee:structuredClone(snapshot)}}}};
  w.fetch=async(url,options)=>{requests.push({url,options});return{ok:true,json:async()=>url.endsWith('/health')?{protocolVersion}:url.endsWith('/preview')?(previewError?{ok:false,error:'Invalid CSD'}:{ok:true,previewDataUrl:'data:image/png;base64,U0RL'}):{ok:true,printer:'SMART-51'}}};
  w.setInterval=fn=>{w.poll=fn};w.setTimeout=()=>{};
@@ -81,4 +82,20 @@ test('failed native CSD preview leaves printing disabled and sends no print',asy
  assert.equal(p.w.document.querySelector('#confirm-print').disabled,true);
  p.w.document.querySelector('#confirm-print').click();await settle();
  assert.equal(p.requests.filter(r=>r.url.endsWith('/print')).length,0);p.dom.window.close();
+});
+test('position edits invalidate the old preview and apply without changing source data',async()=>{
+ const p=await preview('employee');await attachPhoto(p);
+ const input=p.w.document.querySelector('#position-text'),button=p.w.document.querySelector('#confirm-print');
+ input.value='Зам. глав. врача по экон. вопр.';input.dispatchEvent(new p.w.Event('input'));
+ assert.equal(button.disabled,true);button.click();await settle();
+ assert.equal(p.requests.filter(r=>r.url.endsWith('/print')).length,0);
+ p.w.document.querySelector('#apply-position').click();
+ await waitFor(()=>p.requests.filter(r=>r.url.endsWith('/preview')).length===2);await settle();
+ assert.equal(button.disabled,false);
+ assert.equal(JSON.parse(p.requests.filter(r=>r.url.endsWith('/preview')).at(-1).options.body).position,input.value);
+ assert.equal(employee.position,undefined);
+ input.value='Очень длинная неизвестная должность '.repeat(5);input.dispatchEvent(new p.w.Event('input'));
+ p.w.document.querySelector('#apply-position').click();await settle();
+ assert.equal(button.disabled,true);assert.equal(p.requests.filter(r=>r.url.endsWith('/preview')).length,2);
+ assert.match(p.w.document.querySelector('#status').textContent,/не помещается/);p.dom.window.close();
 });
