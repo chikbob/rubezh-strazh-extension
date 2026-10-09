@@ -57,8 +57,9 @@ public static class FakeSmartSdk {
     public static byte[] Settings;
     public static int SettingsWritten;
     public static ulong Status;
+    public static bool CurrentHandlePreviewed;
     public static void ValidateDevice(IntPtr device) {}
-    public static uint OpenDevice(ref IntPtr handle, IntPtr device, int type) { Opened++; handle = new IntPtr(1); return 0; }
+    public static uint OpenDevice(ref IntPtr handle, IntPtr device, int type) { Opened++; handle = new IntPtr(Opened); CurrentHandlePreviewed=false; return 0; }
     public static ulong ReadStatus(IntPtr handle) { return Status; }
     public static bool IsIdle(ulong value) { return SmartSdk.IsIdle(value); }
     public static uint GetRibbonInfo(IntPtr handle, ref int type, ref int maximum, ref int remaining, ref int grade) {
@@ -67,6 +68,7 @@ public static class FakeSmartSdk {
     public static byte[] ReadSettings(IntPtr handle) {
         byte[] result = (byte[])Settings.Clone();
         if (FailAt == "verify" && SettingsWritten > 0) result[796] = 99;
+        if (FailAt == "nativeProfile") result[852] = 1; // BPResinOnly differs from the verified export.
         return result;
     }
     public static void WriteSettings(IntPtr handle, byte[] settings) { SettingsWritten++; Settings = (byte[])settings.Clone(); }
@@ -82,7 +84,11 @@ public static class FakeSmartSdk {
         Marshal.StructureToPtr(new RECT { Left = x, Top = y, Right = x + 100, Bottom = y - size }, area, false);
         return 0;
     }
-    public static uint Print(IntPtr handle) { Printed++; if (FailAt == "printFault") { Status = 0x4000000000UL; return 0x8000001Bu; } return 0; }
+    public static uint Print(IntPtr handle) {
+        if (CurrentHandlePreviewed) throw new Exception("Printing handle was contaminated by preview rendering");
+        Printed++;
+        if (FailAt == "printFault") { Status = 0x4000000000UL; return 0x8000001Bu; } return 0;
+    }
     public static void WaitForCompletion(IntPtr handle) {
         Waited++;
         if (FailAt == "wait") Status = 0x4000000000UL;
@@ -96,6 +102,7 @@ public static class FakeSmartSdk {
     public static uint CloseDocument(IntPtr handle) { DocumentsClosed++; return 0; }
     public static void SaveDocumentPreview(IntPtr handle, string path) {
         Previews++;
+        CurrentHandlePreviewed=true;
         if (FailAt == "preview") throw new Exception("Native preview failed");
         System.IO.File.WriteAllBytes(path, new byte[]{1,2,3});
     }
@@ -116,7 +123,7 @@ $settings[68] = 220
 # Exercise the actual PowerShell job/cache/finally blocks with a fake native
 # device; no ribbon movement or print command is sent to any real printer.
 $ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$null, [ref]$null)
-foreach ($name in @('Assert-PrintObjects','Invoke-CardPrint','Invoke-NativeCsd','Invoke-PrintRequest')) {
+foreach ($name in @('Assert-PrintObjects','Invoke-CardPrint','Assert-NativeJobProfile','Invoke-NativeCsd','Invoke-PrintRequest')) {
     $function = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     Invoke-Expression ($function.Extent.Text.Replace('[SmartSdk]', '[FakeSmartSdk]').Replace('SmartSdk+RECT', 'FakeSmartSdk+RECT'))
 }
@@ -292,6 +299,7 @@ $nativePayload = @{jobId='printPayload-'+[guid]::NewGuid();passType='employee';s
 $script:printerNeedsCheck=$false
 [FakeSmartSdk]::Status=0
 [FakeSmartSdk]::FailAt=''
+[Array]::Copy($profile,8,[FakeSmartSdk]::Settings,784,12976)
 $beforeNativePrint=[FakeSmartSdk]::Printed
 $nativeJobs=@{}
 Assert-Bridge (Invoke-NativeCsd $nativePayload $true).ok 'Preview-only CSD request failed'
@@ -303,6 +311,14 @@ Assert-Bridge (Invoke-PrintRequest $nativePayload $nativeJobs).ok 'Native CSD du
 Assert-Bridge ([FakeSmartSdk]::Printed -eq $beforeNativePrint+1) 'Native CSD duplicate printed again'
 Assert-Bridge ([FakeSmartSdk]::DocumentsOpened -eq [FakeSmartSdk]::DocumentsClosed) 'Native document leaked'
 Assert-Bridge ([FakeSmartSdk]::SettingsWritten -eq $beforeSettings) 'Native CSD rewrote printer settings'
+for($i=0;$i -lt 20;$i++) {
+    $copy=$nativePayload.Clone();$copy.jobId='printPayload-'+[guid]::NewGuid();$copy.position="First line`nContinuation"
+    $before=[FakeSmartSdk]::Printed
+    Assert-Bridge (Invoke-PrintRequest $copy $nativeJobs).ok 'Repeated isolated native job failed'
+    Assert-Bridge (Invoke-PrintRequest $copy $nativeJobs).ok 'Repeated isolated job lost cached result'
+    Assert-Bridge ([FakeSmartSdk]::Printed -eq $before+1) 'Repeated isolated job printed twice'
+}
+Assert-Bridge ([FakeSmartSdk]::SettingsWritten -eq $beforeSettings) 'Repeated native jobs changed settings'
 foreach ($bad in @('photo','text','number')) {
     $values=[string[]]$nativeValues.Clone();$photo=[byte[]]$nativePhoto.Clone()
     if ($bad -eq 'photo') { $photo[19]=0 }
@@ -312,7 +328,7 @@ foreach ($bad in @('photo','text','number')) {
     try { [void][NativeCsd]::Prepare($nativeMaster,$values,$photo,$false) } catch { $failed=$true }
     Assert-Bridge $failed ('Invalid native data accepted: '+$bad)
 }
-foreach ($failure in @('document','preview','printFault')) {
+foreach ($failure in @('document','preview','nativeProfile','printFault')) {
     $script:printerNeedsCheck=$false
     [FakeSmartSdk]::Status=0
     [FakeSmartSdk]::FailAt=$failure

@@ -340,6 +340,16 @@ function Convert-NativePreview([string]$path) {
     } finally { $stream.Dispose(); $image.Dispose() }
 }
 
+function Assert-NativeJobProfile([IntPtr]$handle, [int]$ribbonType) {
+    # Read-only comparison with the user's verified iDesigner export. Do not
+    # silently alter resin extraction, ribbon, heat or driver settings.
+    $actual = [SmartSdk]::ReadSettings($handle)
+    Write-BridgeLog ('Native CSD driver settings: ' + [Smart51Profile]::Describe($actual))
+    $profile = [Smart51Profile]::Load((Join-Path $bridgeDir 'sotrudnikiHymcko.sd1'))
+    $expected = [Smart51Profile]::Prepare($actual,$profile,$ribbonType)
+    [Smart51Profile]::Verify($expected,$actual)
+}
+
 function Invoke-NativeCsd($payload, [bool]$previewOnly) {
     if ($script:printerNeedsCheck) { throw 'Previous print was not confirmed. Check the printer, then restart the bridge while idle. No new print was sent.' }
     if ($payload.passType -notin @('employee','mosn')) { throw 'Native CSD is for employee and MOSN passes only.' }
@@ -376,17 +386,45 @@ function Invoke-NativeCsd($payload, [bool]$previewOnly) {
         if ($previewOnly) {
             return @{ok=$true;previewDataUrl=(Convert-NativePreview $previewPath)}
         }
+        # IDP's Driver-CSD sample prints a freshly opened document without
+        # GetPreviewBitmap. Keep preview rendering off the printing handle:
+        # destroy BOTH the document and device/DC before the actual job.
+        $result = [SmartSdk]::CloseDocument($handle)
+        if ($result -ne 0) { throw "Cannot close preview document (code $result). No print was sent." }
+        $opened = $false
+        $result = [SmartSdk]::CloseDevice($handle)
+        if ($result -ne 0) { throw "Cannot close preview device (code $result). No print was sent." }
+        $handle = [IntPtr]::Zero
+        $result = [SmartSdk]::OpenDevice([ref]$handle,$devicePtr,1)
+        if ($result -ne 0) { throw "Cannot open fresh print device (code $result). No print was sent." }
+        $status = [SmartSdk]::ReadStatus($handle)
+        Write-BridgeLog ('Fresh native print preflight status=0x{0:X16}' -f $status)
+        if (-not [SmartSdk]::IsIdle($status)) { throw 'Printer changed state after preview; no print was sent.' }
+        $result = [SmartSdk]::GetRibbonInfo($handle,[ref]$type,[ref]$maximum,[ref]$remaining,[ref]$grade)
+        if ($result -ne 0 -or $type -ne 2 -or $remaining -le 0) { throw 'Print ribbon changed after preview; no print was sent.' }
+        Assert-NativeJobProfile $handle $type
+        $result = [SmartSdk]::OpenDocument($handle,$csdPath)
+        if ($result -ne 0) { throw "Cannot reopen CSD for printing (code $result). No print was sent." }
+        $opened = $true
+        Assert-NativeJobProfile $handle $type
+        Write-BridgeLog "Fresh CSD print started without preview on this handle: ribbonType=$type ribbonRemaining=$remaining"
         $script:printerNeedsCheck = $true
         $result = [SmartSdk]::Print($handle)
-        if ($result -ne 0) { throw "Native CSD print failed (code $result)." }
+        Write-BridgeLog "Native CSD Print returned: result=$result"
+        if ($result -ne 0) {
+            try { Write-BridgeLog ('Native CSD fault status=0x{0:X16}' -f [SmartSdk]::ReadStatus($handle)) } catch { Write-BridgeLog $_.Exception.Message }
+            throw "Native CSD print failed (code $result)."
+        }
         [SmartSdk]::WaitForCompletion($handle)
-        if (-not [SmartSdk]::IsIdle([SmartSdk]::ReadStatus($handle))) { throw 'Native CSD completion is unconfirmed.' }
+        $status = [SmartSdk]::ReadStatus($handle)
+        Write-BridgeLog ('Native CSD final status=0x{0:X16}' -f $status)
+        if (-not [SmartSdk]::IsIdle($status)) { throw 'Native CSD completion is unconfirmed.' }
         $script:printerNeedsCheck = $false
         Write-BridgeLog 'Native CSD print completed.'
         return @{ok=$true;printer=$printer}
     } finally {
         if ($opened) { try { Write-BridgeLog ('Close native CSD: result=' + [SmartSdk]::CloseDocument($handle)) } catch { Write-BridgeLog $_.Exception.Message } }
-        if ($handle -ne [IntPtr]::Zero) { [void][SmartSdk]::CloseDevice($handle) }
+        if ($handle -ne [IntPtr]::Zero) { Write-BridgeLog ('Close native device: result=' + [SmartSdk]::CloseDevice($handle)) }
         if ($devicePtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($devicePtr) }
         foreach ($file in @($csdPath,$previewPath)) { Remove-Item $file -Force -ErrorAction SilentlyContinue }
     }
@@ -442,7 +480,7 @@ while ($true) {
         if ($requestLine -match '^OPTIONS ') {
             Send-Response $stream 200 '{"ok":true}'
         } elseif ($requestLine -match '^GET /health ') {
-            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 8 } | ConvertTo-Json -Compress)
+            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 9 } | ConvertTo-Json -Compress)
         } elseif ($requestLine -match '^POST /(print|preview) ' -and $contentLength -gt 0 -and $contentLength -le 16777216) {
             $previewOnly = $Matches[1] -eq 'preview'
             $chars = New-Object char[] $contentLength
