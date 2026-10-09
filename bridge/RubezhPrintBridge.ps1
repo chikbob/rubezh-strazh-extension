@@ -350,6 +350,45 @@ function Assert-NativeJobProfile([IntPtr]$handle, [int]$ribbonType) {
     [Smart51Profile]::Verify($expected,$actual)
 }
 
+function Assert-EmptyPrintQueue {
+    # Conservative: any Windows job may belong to an SDK alias of this device.
+    # Do not delete jobs or dismiss a Windows intervention state automatically.
+    $pending = @(Get-CimInstance -ClassName Win32_PrintJob -ErrorAction Stop)
+    if ($pending.Count -gt 0) { throw 'Windows print queue is not empty. Resolve or cancel the old job in Windows first; no print was sent.' }
+}
+
+function Invoke-PrinterRecovery($payload) {
+    if ($payload.confirmedCardRemoved -isnot [bool] -or -not $payload.confirmedCardRemoved) { throw 'Confirm the old card was ejected and removed before checking readiness.' }
+    $handle = [IntPtr]::Zero
+    $devicePtr = [IntPtr]::Zero
+    try {
+        Assert-EmptyPrintQueue
+        $printer = Get-SmartPrinter
+        $devicePtr = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($printer)
+        [SmartSdk]::ValidateDevice($devicePtr)
+        $result = [SmartSdk]::OpenDevice([ref]$handle,$devicePtr,1)
+        if ($result -ne 0) { throw "Cannot open device for readiness check (code $result)." }
+        # Status reads only: no Print, document, reset, movement or settings write.
+        [SmartSdk]::WaitForIdle({ [SmartSdk]::ReadStatus($handle) }, { Start-Sleep -Milliseconds 200 }, 15, 10)
+        $status = [SmartSdk]::ReadStatus($handle)
+        Write-BridgeLog ('Recovery status=0x{0:X16}' -f $status)
+        if (-not [SmartSdk]::IsIdle($status) -or ($status -band 0x008C0000) -ne 0) { throw 'Printer still contains a card or is not idle. Recovery was refused.' }
+        $type=-1; $maximum=-1; $remaining=-1; $grade=-1
+        $result = [SmartSdk]::GetRibbonInfo($handle,[ref]$type,[ref]$maximum,[ref]$remaining,[ref]$grade)
+        if ($result -ne 0 -or $type -ne 2 -or $remaining -le 0) { throw 'Cannot confirm an available hYMCKO ribbon. Recovery was refused.' }
+        Assert-EmptyPrintQueue
+        $result = [SmartSdk]::CloseDevice($handle)
+        $handle = [IntPtr]::Zero
+        if ($result -ne 0) { throw "Cannot close readiness check (code $result)." }
+        $script:printerNeedsCheck = $false
+        Write-BridgeLog 'Operator recovery confirmed: old job history retained; no print or movement sent.'
+        return @{ok=$true;printer=$printer}
+    } finally {
+        if ($handle -ne [IntPtr]::Zero) { [void][SmartSdk]::CloseDevice($handle) }
+        if ($devicePtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($devicePtr) }
+    }
+}
+
 function Invoke-NativeCsd($payload, [bool]$previewOnly) {
     if ($script:printerNeedsCheck) { throw 'Previous print was not confirmed. Check the printer, then restart the bridge while idle. No new print was sent.' }
     if ($payload.passType -notin @('employee','mosn')) { throw 'Native CSD is for employee and MOSN passes only.' }
@@ -480,8 +519,9 @@ while ($true) {
         if ($requestLine -match '^OPTIONS ') {
             Send-Response $stream 200 '{"ok":true}'
         } elseif ($requestLine -match '^GET /health ') {
-            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 9 } | ConvertTo-Json -Compress)
-        } elseif ($requestLine -match '^POST /(print|preview) ' -and $contentLength -gt 0 -and $contentLength -le 16777216) {
+            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 9; recoverySupported = $true; printerNeedsCheck = $script:printerNeedsCheck } | ConvertTo-Json -Compress)
+        } elseif ($requestLine -match '^POST /(print|preview|recover) ' -and $contentLength -gt 0 -and $contentLength -le 16777216) {
+            $recovery = $Matches[1] -eq 'recover'
             $previewOnly = $Matches[1] -eq 'preview'
             $chars = New-Object char[] $contentLength
             $read = 0
@@ -491,7 +531,8 @@ while ($true) {
                 $read += $count
             }
             $payload = (-join $chars) | ConvertFrom-Json
-            if ($previewOnly) { Send-Response $stream 200 (Invoke-NativeCsd $payload $true | ConvertTo-Json -Compress) }
+            if ($recovery) { Send-Response $stream 200 (Invoke-PrinterRecovery $payload | ConvertTo-Json -Compress) }
+            elseif ($previewOnly) { Send-Response $stream 200 (Invoke-NativeCsd $payload $true | ConvertTo-Json -Compress) }
             else { Send-Response $stream 200 (Invoke-PrintRequest $payload $jobs | ConvertTo-Json -Compress) }
         } else {
             Send-Response $stream 400 '{"ok":false,"error":"Invalid request."}'

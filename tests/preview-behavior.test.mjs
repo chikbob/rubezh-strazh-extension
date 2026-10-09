@@ -9,7 +9,7 @@ async function preview(type='temporary',extra={}){
  const dom=new JSDOM(fs.readFileSync(new URL('../src/print.html',import.meta.url),'utf8'),{url:'https://extension.test/print.html?payload=printPayload-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',runScripts:'outside-only'});
  const w=dom.window,rendered=[],requests=[];
  const person={...structuredClone(employee),...extra};
- let snapshot=structuredClone(person),protocolVersion=9,previewError=false;
+ let snapshot=structuredClone(person),protocolVersion=9,previewError=false,locked=false,recoveryFails=false;
  w.FileReader=class{readAsDataURL(){this.result='data:image/png;base64,AA==';this.onload()}};
  w.Image=class{naturalWidth=386;naturalHeight=502;set src(value){this.onload()}};
  w.HTMLImageElement.prototype.decode=async()=>{};
@@ -18,12 +18,40 @@ async function preview(type='temporary',extra={}){
  w.renderNativePhoto=async()=> 'data:image/png;base64,AA==';
  w.prepareNativePosition=input=>({text:input,fits:input.length<60,changed:false});
  w.chrome={storage:{session:{get:async key=>({[key]:{employee:structuredClone(person),type,sourceTabId:42}}),remove:async()=>{}}},tabs:{sendMessage:async id=>{assert.equal(id,42);return{ok:true,employee:structuredClone(snapshot)}}}};
- w.fetch=async(url,options)=>{requests.push({url,options});return{ok:true,json:async()=>url.endsWith('/health')?{protocolVersion}:url.endsWith('/preview')?(previewError?{ok:false,error:'Invalid CSD'}:{ok:true,previewDataUrl:'data:image/png;base64,U0RL'}):{ok:true,printer:'SMART-51'}}};
+ w.fetch=async(url,options)=>{requests.push({url,options});return{ok:true,json:async()=>{if(url.endsWith('/health'))return{protocolVersion,recoverySupported:true};if(url.endsWith('/recover')){if(recoveryFails)return{ok:false,error:'Printer busy'};locked=false;return{ok:true}}if(locked)return{ok:false,error:'Previous print was not confirmed.'};return url.endsWith('/preview')?(previewError?{ok:false,error:'Invalid CSD'}:{ok:true,previewDataUrl:'data:image/png;base64,U0RL'}):{ok:true,printer:'SMART-51'}}};};
  w.setInterval=fn=>{w.poll=fn};w.setTimeout=()=>{};
  w.eval(code);await w.started;
- return{dom,w,rendered,requests,setSnapshot(value){snapshot=value},setProtocol(value){protocolVersion=value},failPreview(){previewError=true}};
+ return{dom,w,rendered,requests,setSnapshot(value){snapshot=value},setProtocol(value){protocolVersion=value},failPreview(){previewError=true},lock(value=true){locked=value},failRecovery(){recoveryFails=true}};
 }
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
+test('operator recovery after Cancel rebuilds preview but never sends a print',async()=>{
+ const p=await preview('employee');p.lock();await attachPhoto(p);
+ const button=p.w.document.querySelector('#check-printer'),ack=p.w.document.querySelector('#recovery-ack');
+ assert.equal(button.parentElement.hidden,false);assert.equal(button.disabled,true);
+ button.click();await settle();assert.equal(p.requests.some(r=>r.url.endsWith('/recover')),false);
+ ack.checked=true;ack.dispatchEvent(new p.w.Event('change'));button.click();
+ await waitFor(()=>!p.w.document.querySelector('#confirm-print').disabled);
+ assert.equal(p.requests.filter(r=>r.url.endsWith('/recover')).length,1);
+ assert.deepEqual(JSON.parse(p.requests.find(r=>r.url.endsWith('/recover')).options.body),{confirmedCardRemoved:true});
+ assert.equal(p.requests.filter(r=>r.url.endsWith('/print')).length,0);p.dom.window.close();
+});
+test('busy printer recovery cannot unlock printing or resend a failed job',async()=>{
+ const p=await preview('employee');await attachPhoto(p);p.lock();
+ p.w.document.querySelector('#confirm-print').click();await waitFor(()=>p.w.document.querySelector('#check-printer').parentElement.hidden===false);await settle();
+ p.failRecovery();const ack=p.w.document.querySelector('#recovery-ack');ack.checked=true;ack.dispatchEvent(new p.w.Event('change'));p.w.document.querySelector('#check-printer').click();
+ await waitFor(()=>p.w.document.querySelector('#status').textContent.includes('Printer busy'));
+ assert.equal(p.w.document.querySelector('#confirm-print').disabled,true);
+ assert.equal(p.requests.filter(r=>r.url.endsWith('/print')).length,1);p.dom.window.close();
+});
+test('successful recovery also keeps the old attempted job permanently disabled',async()=>{
+ const p=await preview('employee');await attachPhoto(p);p.lock();
+ p.w.document.querySelector('#confirm-print').click();await waitFor(()=>!p.w.document.querySelector('#check-printer').parentElement.hidden);await settle();
+ const ack=p.w.document.querySelector('#recovery-ack');ack.checked=true;ack.dispatchEvent(new p.w.Event('change'));p.w.document.querySelector('#check-printer').click();
+ await waitFor(()=>p.w.document.querySelector('#status').textContent.includes('Старое задание не повторяется'));
+ p.w.document.querySelector('#confirm-print').click();await settle();
+ assert.equal(p.w.document.querySelector('#confirm-print').disabled,true);
+ assert.equal(p.requests.filter(r=>r.url.endsWith('/print')).length,1);p.dom.window.close();
+});
 async function waitFor(condition){for(let i=0;i<30;i++){if(condition())return;await settle()}assert.ok(condition())}
 test('new code refreshes an open preview and is sent only after confirmation',async()=>{
  const p=await preview();const button=p.w.document.querySelector('#confirm-print');

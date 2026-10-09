@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Установка в Яндекс Браузер — RUBEZH STRAZH</title><link rel="stylesheet" href="help.css"></head>
+<body><main><header><p class="eyebrow">RUBEZH STRAZH · установка · 2.8</p><h1>Установка в Яндекс Браузер</h1><p>Пошаговая инструкция основана на ваших снимках. Красные рамки, стрелки и номера добавлены для пояснения. На некоторых снимках показана ранняя rc-версия: номер на вашем компьютере может отличаться, ориентируйтесь на скачанный релиз. Снимки обезличены; исходные фото не входят в инструкцию.</p>
+<p>Можно открыть ту же инструкцию как страницу с крупными картинками: <a href="install.html">src/install.html</a>. Руководство по ежедневной работе находится отдельно: <a href="help.html">src/help.html</a>.</p><p>Уже установлено? Перейдите к <a href="help.html">инструкции по работе с пропусками</a>.</p></header>
+<nav aria-label="Содержание"><a href="#step-1">1. Подготовка</a><a href="#step-2">2. Скачать ZIP</a><a href="#step-3">3. Распаковать</a><a href="#step-4">4. Мост</a><a href="#step-5">5. Яндекс Браузер</a><a href="#step-6">6. Адрес RUBEZH</a><a href="#check">7. Проверка связи</a><a href="#step-8">8. Обновление</a><a href="#step-9">9. Ошибки</a></nav>
+<section id="step-1"><h2>1. Подготовьте компьютер</h2>
+<p>Нужен Windows-компьютер с Яндекс Браузером, установленными SMART iDesigner и драйвером IDP SMART-51. Принтер должен определяться в Windows. Прежде чем работать через расширение, убедитесь, что ваш принтер работает из iDesigner с профилем hYMCKO. Расширение не устанавливает драйвер, не прошивает принтер и не исправляет неисправную ленту.</p>
+<p>Дождитесь окончания всех заданий: принтер должен быть готов и неподвижен. Если на дисплее ошибка, сначала обратитесь к ответственному за принтер. Не запускайте установку моста во время печати.</p>
+</section>
+<section id="step-2"><h2>2. Скачайте готовый архив релиза</h2>
+<ol start="1">
+<li>Откройте <a href="https://github.com/chikbob/rubezh-strazh-extension">страницу проекта</a> и справа найдите <strong>Releases</strong>.</li>
+<li>Нажмите релиз с отметкой <strong>Latest</strong>.</li>
+</ol>
+<figure><a href="help-assets/screenshots/install-release.svg" target="_blank" rel="noopener"><img src="help-assets/screenshots/install-release.svg" alt="Открытие последнего релиза: стрелка к Latest" loading="lazy"></a><figcaption>Открытие последнего релиза: стрелка к Latest. Нажмите для увеличения.</figcaption></figure>
+<ol start="3">
+<li>В разделе <strong>Assets</strong> нажмите файл вида <code>rubezh-strazh-extension-unpacked-v2.8.0.zip</code>. Для более новой версии номер в имени будет другой.</li>
+<li><strong>Не скачивайте Source code (zip/tar.gz)</strong> для обычной установки: это исходники, не готовый комплект.</li>
+</ol>
+<figure><a href="help-assets/screenshots/install-download.svg" target="_blank" rel="noopener"><img src="help-assets/screenshots/install-download.svg" alt="Готовый ZIP в разделе Assets, не архив исходников" loading="lazy"></a><figcaption>Готовый ZIP в разделе Assets, не архив исходников. Нажмите для увеличения.</figcaption></figure>
+</section>
+<section id="step-3"><h2>3. Найдите ZIP и полностью распакуйте его</h2>
+<ol start="1">
+<li>Дождитесь завершения загрузки. В загрузках браузера нажмите <strong>«Открыть папку»</strong>.</li>
+</ol>
+<figure><a href="help-assets/screenshots/install-downloads.svg" target="_blank" rel="noopener"><img src="help-assets/screenshots/install-downloads.svg" alt="Кнопка Открыть папку в загрузках" loading="lazy"></a><figcaption>Кнопка Открыть папку в загрузках. Нажмите для увеличения.</figcaption></figure>
+<ol start="2">
+<li>В Проводнике щёлкните правой кнопкой по ZIP → <strong>«Извлечь файлы…»</strong> (на снимке WinRAR) или <strong>«Извлечь всё»</strong> (средство Windows).</li>
+<li>Выберите постоянную папку, например <code>Документы\RubezhPrinter</code>, и распакуйте архив целиком. Содержимое архива нельзя запускать прямо из окна ZIP.</li>
+</ol>
+<figure><a href="help-assets/screenshots/install-extract.svg" target="_blank" rel="noopener"><img src="help-assets/screenshots/install-extract.svg" alt="Извлечение файлов через контекстное меню архива" loading="lazy"></a><figcaption>Извлечение файлов через контекстное меню архива. Нажмите для увеличения.</figcaption></figure>
+<ol start="4">
+<li>Откройте папку <code>rubezh-strazh-extension-unpacked</code>. Непосредственно в ней должны лежать <code>manifest.json</code>, папки <code>src</code> и <code>bridge</code>, <code>README.md</code>, <code>INSTALL-RU.txt</code>.</li>
+<li>Если внутри есть ещё одна одноимённая папка, откройте её: нужен уровень с <code>manifest.json</code>. Не выбирайте папку <code>src</code> или <code>bridge</code> вместо корня расширения.</li>
+<li>Не удаляйте и не перемещайте эту папку после подключения: браузер читает файлы из неё. Снимки показывают «Загрузки», но постоянная отдельная папка удобнее, чем очищаемая папка загрузок.</li>
+</ol>
+</section>
+<section id="step-4"><h2>4. Установите локальный Print Bridge</h2>
+<ol start="1">
+<li>В распакованном комплекте откройте папку <strong>bridge</strong>.</li>
+<li>При готовом неподвижном принтере дважды щёлкните <strong>install.cmd</strong>. Это установщик. Не запускайте вместо него <code>install.ps1</code>, <code>RubezhPrintBridge.ps1</code> или <code>.cs</code>-файлы.</li>
+</ol>
+<figure><a href="help-assets/screenshots/install-bridge.svg" target="_blank" rel="noopener"><img src="help-assets/screenshots/install-bridge.svg" alt="install.cmd в папке bridge: выделен нужный установщик" loading="lazy"></a><figcaption>install.cmd в папке bridge: выделен нужный установщик. Нажмите для увеличения.</figcaption></figure>
+<ol start="3">
+<li>Дождитесь сообщения <strong>RUBEZH Print Bridge installed and started successfully.</strong> и <strong>Installation completed.</strong></li>
+<li>Когда установщик пишет «Для продолжения нажмите любую клавишу…», нажмите любую клавишу и закройте это окно. Постоянно держать его открытым не требуется.</li>
+</ol>
+<figure><a href="help-assets/screenshots/install-ready.svg" target="_blank" rel="noopener"><img src="help-assets/screenshots/install-ready.svg" alt="Сообщение установщика об успешном запуске моста" loading="lazy"></a><figcaption>Сообщение установщика об успешном запуске моста. Нажмите для увеличения.</figcaption></figure>
+<p>Установщик копирует мост и SDK из установленного iDesigner в <code>%LOCALAPPDATA%\RubezhPrintBridge</code>, запускает мост и включает автозапуск при входе в Windows. При обновлении он останавливает старый мост — поэтому установка запрещена во время движения принтера.</p>
+<p>Если показано <strong>SmartComm2.dll was not found</strong>, установите/проверьте SMART iDesigner. Не скачивайте DLL со случайных сайтов. Если запуск ограничен политикой рабочего компьютера, обратитесь к администратору; не отключайте защиту ради установки.</p>
+</section>
+<section id="step-5"><h2>5. Подключите распакованное расширение</h2>
+<ol start="1">
+<li>В адресную строку Яндекс Браузера вставьте <code>browser://extensions</code> и нажмите Enter.</li>
+<li>В правом верхнем углу включите <strong>«Режим разработчика»</strong>.</li>
+</ol>
+<figure><a href="help-assets/screenshots/install-developer.svg" target="_blank" rel="noopener"><img src="help-assets/screenshots/install-developer.svg" alt="Режим разработчика в Яндекс Браузере" loading="lazy"></a><figcaption>Режим разработчика в Яндекс Браузере. Нажмите для увеличения.</figcaption></figure>
+<ol start="3">
+<li>Нажмите <strong>«Загрузить распакованное расширение»</strong> слева сверху. Не «Упаковать расширение» и не «Обновить».</li>
+</ol>
+<figure><a href="help-assets/screenshots/install-browser.svg" target="_blank" rel="noopener"><img src="help-assets/screenshots/install-browser.svg" alt="Кнопка Загрузить распакованное расширение" loading="lazy"></a><figcaption>Кнопка Загрузить распакованное расширение. Нажмите для увеличения.</figcaption></figure>
+<ol start="4">
+<li>В окне выбора папки откройте <strong>rubezh-strazh-extension-unpacked</strong> и нажмите <strong>«Выбор папки»</strong>.</li>
+</ol>
+<figure><a href="help-assets/screenshots/install-folder.svg" target="_blank" rel="noopener"><img src="help-assets/screenshots/install-folder.svg" alt="Выбор корневой папки расширения и подтверждение" loading="lazy"></a><figcaption>Выбор корневой папки расширения и подтверждение. Нажмите для увеличения.</figcaption></figure>
+<p>В этом диалоге показываются папки, поэтому <code>manifest.json</code> может быть не виден — это нормально. Его наличие проверяют обычным Проводником. Если браузер сообщает, что manifest отсутствует, выбран неверный уровень папки или архив распакован не полностью.</p>
+<ol start="5">
+<li>Найдите карточку <strong>RUBEZH STRAZH — печать пропусков</strong>. Убедитесь, что переключатель включён и нет ошибки загрузки.</li>
+<li>На снимке ниже ранняя версия <code>2.8.0-rc.6</code>; для релиза 2.8.0 должна быть версия 2.8.0. Проверяйте установленную копию, а не номер в иллюстрации.</li>
+</ol>
+<figure><a href="help-assets/screenshots/install-enabled.svg" target="_blank" rel="noopener"><img src="help-assets/screenshots/install-enabled.svg" alt="Карточка загруженного расширения: включение и перезагрузка" loading="lazy"></a><figcaption>Карточка загруженного расширения: включение и перезагрузка. Нажмите для увеличения.</figcaption></figure>
+</section>
+<section id="step-6"><h2>6. Укажите адрес сервера и обновите RUBEZH</h2>
+<ol start="1">
+<li>Откройте значок расширения возле адресной строки → <strong>«Настройки»</strong>. Если значок скрыт, найдите его в меню расширений и при желании закрепите.</li>
+<li>В поле <strong>«Адрес RUBEZH»</strong> укажите фактический адрес вашего сервера: протокол, имя/IP и порт, если есть. Например, <code>http://10.250.225.16</code> — только пример со снимков, не адрес для всех установок. Не добавляйте путь страницы человека.</li>
+<li>Нажмите <strong>«Сохранить»</strong>. Дождитесь сообщения «Настройки сохранены. Обновите страницу RUBEZH».</li>
+<li>Вернитесь в RUBEZH, войдите обычным способом, откройте карточку человека и нажмите <strong>Ctrl+R</strong>. Рядом с кнопкой сохранения должны появиться <strong>С / М / В</strong>.</li>
+</ol>
+<figure><a href="help-assets/install-bridge.svg" target="_blank" rel="noopener"><img src="help-assets/install-bridge.svg" alt="Схема поля адреса, сохранения и обновления страницы" loading="lazy"></a><figcaption>Схема поля адреса, сохранения и обновления страницы. Нажмите для увеличения.</figcaption></figure>
+<p>Эта последняя иллюстрация — схема настроек, а остальные — обработанные снимки вашего интерфейса. Пароль RUBEZH в расширение не вводится. Рабочий порядок после установки: значок расширения → <strong>«Инструкция»</strong> или <a href="help.html">src/help.html</a>.</p>
+</section>
+<section id="check"><h2>7. Проверьте связь без печати</h2>
+<p>Откройте <code>http://127.0.0.1:18451/health</code> в браузере. Для 2.8.0 ответ должен содержать <code>ok: true</code>, имя выбранного принтера и <code>protocolVersion: 9</code>. Это только проверка связи, карточка не печатается. Если адрес не открывается — мост недоступен; если протокол другой — используется старый мост.</p>
+<p>Мост по умолчанию выбирает первый найденный подходящий принтер SDK. Если принтеров несколько, ответ health поможет проверить выбор. Для явного выбора запишите точное описание нужного устройства, возвращаемое SDK, в файл <code>%LOCALAPPDATA%\RubezhPrintBridge\printer.txt</code>. Не подставляйте произвольное название очереди Windows: описание должно соответствовать устройству SDK в вашей системе. Не делайте контрольную печать на неизвестном устройстве.</p>
+</section>
+<section id="step-8"><h2>8. Как обновлять комплект</h2>
+<ol start="1">
+<li>Дождитесь готовности и остановки принтера.</li>
+<li>Полностью распакуйте новую версию в постоянную папку. Не смешивайте отдельные файлы разных версий.</li>
+<li>Запустите <strong>bridge\install.cmd</strong> из нового комплекта. Для 2.8.0 нужны расширение и мост с протоколом 9; версия rc.8 использовала тот же протокол.</li>
+<li>Если путь папки прежний, нажмите круговую стрелку <strong>перезагрузки</strong> на карточке расширения (вторая отметка на снимке шага 5). Если путь изменился, подключите новую папку и отключите старую копию.</li>
+<li>Обновите открытые вкладки RUBEZH (<strong>Ctrl+R</strong>), сохраните правильный адрес сервера в настройках и проверьте health.</li>
+</ol>
+<p>Не перезагружайте расширение и не переустанавливайте мост, пока задание выполняется.</p>
+</section>
+<section id="step-9"><h2>9. Если установка не удалась</h2>
+<ul>
+<li><strong>Нет кнопок С/М/В:</strong> откройте карточку, не общий список; проверьте включение расширения и адрес сервера, нажмите Ctrl+R.</li>
+<li><strong>Нет manifest / не удалось загрузить:</strong> распакуйте архив целиком и выбирайте папку с <code>manifest.json</code>, не ZIP и не <code>src</code>/<code>bridge</code>.</li>
+<li><strong>Мост недоступен:</strong> при простаивающем принтере проверьте установку моста и health; сохраните текст ошибки. Не перезапускайте его во время печати.</li>
+<li><strong>Профиль драйвера отличается / печать не подтверждена:</strong> не обходите проверку повторной печатью, передайте лог ответственному за принтер.</li>
+<li><strong>Где лог:</strong> Win+R → <code>%LOCALAPPDATA%\RubezhPrintBridge</code> → <strong>bridge.log</strong>. Передайте свежий файл, время попытки, сообщение/фото дисплея; не используйте старую копию из папки проекта.</li>
+<li><strong>Автозапуск:</strong> отключается <code>bridge\disable-autostart.cmd</code>, включается <code>bridge\enable-autostart.cmd</code>. Отключение применяется при следующем входе в Windows и само по себе не останавливает текущий процесс.</li>
+</ul>
+</section>
+<footer><a href="help.html">Как пользоваться расширением</a> · Эта страница доступна из распакованного комплекта без интернета. Для скачивания релиза нужен интернет. Пароли и служебные настройки не вводятся по чужим примерам.</footer></main></body></html>

@@ -62,6 +62,9 @@ public static class FakeSmartSdk {
     public static uint OpenDevice(ref IntPtr handle, IntPtr device, int type) { Opened++; handle = new IntPtr(Opened); CurrentHandlePreviewed=false; return 0; }
     public static ulong ReadStatus(IntPtr handle) { return Status; }
     public static bool IsIdle(ulong value) { return SmartSdk.IsIdle(value); }
+    public static void WaitForIdle(Func<ulong> read, Action pause, int attempts, int samples) {
+        SmartSdk.WaitForIdle(read, () => {}, attempts, samples);
+    }
     public static uint GetRibbonInfo(IntPtr handle, ref int type, ref int maximum, ref int remaining, ref int grade) {
         type = FailAt == "ribbonType" ? 3 : 2; maximum = 350; remaining = 310; grade = 1; return 0;
     }
@@ -123,7 +126,7 @@ $settings[68] = 220
 # Exercise the actual PowerShell job/cache/finally blocks with a fake native
 # device; no ribbon movement or print command is sent to any real printer.
 $ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$null, [ref]$null)
-foreach ($name in @('Assert-PrintObjects','Invoke-CardPrint','Assert-NativeJobProfile','Invoke-NativeCsd','Invoke-PrintRequest')) {
+foreach ($name in @('Assert-PrintObjects','Invoke-CardPrint','Assert-NativeJobProfile','Invoke-PrinterRecovery','Invoke-NativeCsd','Invoke-PrintRequest')) {
     $function = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     Invoke-Expression ($function.Extent.Text.Replace('[SmartSdk]', '[FakeSmartSdk]').Replace('SmartSdk+RECT', 'FakeSmartSdk+RECT'))
 }
@@ -339,3 +342,34 @@ foreach ($failure in @('document','preview','nativeProfile','printFault')) {
 }
 Assert-Bridge ([FakeSmartSdk]::Opened -eq [FakeSmartSdk]::Closed) 'Native device leaked'
 Write-Host 'Native CSD tests passed: sanitized template, unchanged printer bytes, photo substitution, SDK render gate, deduplication and cleanup.'
+
+# Recovery is read-only and operator initiated. Failed jobs remain deduplicated.
+function Assert-EmptyPrintQueue { if ($script:queuePending) { throw 'Windows queue not empty' } }
+$beforePrint=[FakeSmartSdk]::Printed
+$beforeWrites=[FakeSmartSdk]::SettingsWritten
+$beforeDocuments=[FakeSmartSdk]::DocumentsOpened
+$beforeHistory=$nativeJobs.Count
+foreach ($case in @('unconfirmed','motion','ribbon','card','rearCard','queue')) {
+    $script:printerNeedsCheck=$true
+    $script:queuePending=$case -eq 'queue'
+    [FakeSmartSdk]::FailAt=''
+    [FakeSmartSdk]::Status=0
+    if ($case -eq 'motion') { [FakeSmartSdk]::Status=0x200 }
+    if ($case -eq 'ribbon') { [FakeSmartSdk]::Status=0x4000000000 }
+    if ($case -eq 'card') { [FakeSmartSdk]::Status=0x40000 }
+    if ($case -eq 'rearCard') { [FakeSmartSdk]::Status=0x800000 }
+    $failed=$false
+    try { Invoke-PrinterRecovery @{confirmedCardRemoved=($case -ne 'unconfirmed')} | Out-Null } catch { $failed=$true }
+    Assert-Bridge $failed ('Unsafe recovery accepted: '+$case)
+    Assert-Bridge $script:printerNeedsCheck 'Failed recovery cleared lock'
+}
+$script:queuePending=$false
+[FakeSmartSdk]::Status=0x100000
+Assert-Bridge (Invoke-PrinterRecovery @{confirmedCardRemoved=$true}).ok 'Idle recovery failed'
+Assert-Bridge (-not $script:printerNeedsCheck) 'Operator recovery did not clear lock'
+Assert-Bridge ([FakeSmartSdk]::Printed -eq $beforePrint) 'Recovery printed a card'
+Assert-Bridge ([FakeSmartSdk]::SettingsWritten -eq $beforeWrites) 'Recovery modified settings'
+Assert-Bridge ([FakeSmartSdk]::DocumentsOpened -eq $beforeDocuments) 'Recovery loaded a document'
+Assert-Bridge ($nativeJobs.Count -eq $beforeHistory) 'Recovery erased dedup history'
+Assert-Bridge ([FakeSmartSdk]::Opened -eq [FakeSmartSdk]::Closed) 'Recovery leaked device'
+Write-Host 'Operator recovery tests passed: no print/settings writes.'

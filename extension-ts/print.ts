@@ -63,6 +63,13 @@ async function main(){
  const identifierSelect=document.querySelector<HTMLSelectElement>('#identifier-select')!;
  const positionStep=document.querySelector<HTMLElement>('#position-step')!;
  const positionInput=document.querySelector<HTMLTextAreaElement>('#position-text')!;
+ const recovery=document.createElement('div');recovery.hidden=true;
+ const recoveryNote=document.createElement('p');recoveryNote.textContent='После Cancel дождитесь выдачи карточки. Уберите её, дождитесь остановки принтера и устраните ошибку на дисплее. Незавершённые задания в очереди Windows нужно отменить вручную.';
+ const recoveryLabel=document.createElement('label');const recoveryAck=document.createElement('input');recoveryAck.type='checkbox';recoveryAck.id='recovery-ack';recoveryLabel.append(recoveryAck,' Старая карточка выдана и убрана; принтер остановился, ошибки на дисплее нет.');
+ const recoveryButton=document.createElement('button');recoveryButton.type='button';recoveryButton.id='check-printer';recoveryButton.textContent='Проверить готовность после Cancel';recoveryButton.disabled=true;
+ recovery.append(recoveryNote,recoveryLabel,document.createElement('br'),recoveryButton);status.after(recovery);
+ recoveryAck.addEventListener('change',()=>{recoveryButton.disabled=!recoveryAck.checked||isBusy});
+ const showRecovery=(error:unknown)=>{if(/Previous print|print failed|completion is unconfirmed|not ready|not confirmed/i.test(String(error)))recovery.hidden=false};
  let panels:CardPanels|undefined;
  let isBusy=false;
  let printAttempted=false;
@@ -86,6 +93,7 @@ async function main(){
   positionInput.disabled=busy;
   (document.querySelector('#apply-position') as HTMLButtonElement).disabled=busy||printAttempted;
   printButton.disabled=busy||!panels||!selectedIdentifier||!currentCardAvailable||printAttempted;
+  recoveryButton.disabled=busy||!recoveryAck.checked;
  };
 
  const updateIdentifierOptions=()=>{
@@ -116,7 +124,7 @@ async function main(){
  document.querySelector('#apply-position')!.addEventListener('click',async()=>{
   if(isBusy||printAttempted)return;
   try{await rerender();status.textContent=selectedPhoto?'Проверьте обновлённую должность и нажмите «Печать».':'Выберите исходный файл фотографии.'}
-  catch(error){status.textContent=String(error);setControlsBusy(false)}
+  catch(error){showRecovery(error);status.textContent=String(error);setControlsBusy(false)}
  });
  identifierSelect.addEventListener('change',async()=>{selectedIdentifier=identifierSelect.value;try{await rerender();status.textContent=requiresPhoto&&!selectedPhoto?'Выберите исходный файл фотографии. До этого печать недоступна.':'Проверьте данные и нажмите «Печать».'}catch(error){status.textContent=`Ошибка формирования пропуска: ${String(error)}`;setControlsBusy(false)}});
 
@@ -156,6 +164,7 @@ async function main(){
    selectPhotoButton.textContent='Заменить фото';
    status.textContent='Фото добавлено. Проверьте пропуск и нажмите «Печать».';
   }catch(error){
+   showRecovery(error);
    photoName.textContent='Фото не выбрано';
    status.textContent=`Ошибка фотографии: ${String(error)}`;
   }finally{setControlsBusy(false)}
@@ -174,9 +183,24 @@ async function main(){
    window.setTimeout(()=>window.close(),900);
   }catch(error){
    const message=String(error);
+   showRecovery(error);
    status.textContent=`Печать не подтверждена. Проверьте дисплей принтера и карточку; не отправляйте её повторно вслепую. ${message}`;
    setControlsBusy(false);
   }
+ });
+
+ recoveryButton.addEventListener('click',async()=>{
+  if(isBusy||!recoveryAck.checked)return;
+  setControlsBusy(true);status.textContent='Проверка очереди и состояния принтера. Печать не отправляется…';
+  try{
+   const health=await fetch(`${BRIDGE}/health`).then(r=>r.json());
+   if(!health.recoverySupported)throw new Error('Для проверки готовности обновите Print Bridge через bridge\\install.cmd при остановленном принтере.');
+   const response=await fetch(`${BRIDGE}/recover`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmedCardRemoved:true})});
+   const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Готовность не подтверждена.');
+   recovery.hidden=true;recoveryAck.checked=false;
+   if(printAttempted){status.textContent='Принтер готов к новому заданию. Закройте это окно и откройте следующий пропуск. Старое задание не повторяется.';setControlsBusy(false)}
+   else{await rerender();status.textContent='Принтер готов. Проверьте макет; печать запускается только кнопкой «Печать».'}
+  }catch(error){status.textContent=`Проверка готовности: ${String(error)} Печать не отправлена.`;setControlsBusy(false)}
  });
 
  try{
