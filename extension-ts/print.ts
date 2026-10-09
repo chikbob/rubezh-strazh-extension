@@ -8,7 +8,7 @@ type CardPanels=Partial<EmployeeData>&{passType:PassType;photoDataUrl?:string;ob
 
 async function directPrint(plan:CardPanels,jobId:string){
  const health=await fetch(`${BRIDGE}/health`).then(response=>response.json());
- if(health.protocolVersion!==6)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии, когда принтер не печатает. Старый мост не используется.');
+ if(health.protocolVersion!==7)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии, когда принтер не печатает. Старый мост не используется.');
  // Bridge HTTP framing counts ASCII bytes, including escaped Cyrillic text.
  const body=JSON.stringify({...plan,jobId}).replace(/[\u007f-\uffff]/g,char=>'\\u'+char.charCodeAt(0).toString(16).padStart(4,'0'));
  const response=await fetch(`${BRIDGE}/print`,{method:'POST',headers:{'Content-Type':'application/json'},body});
@@ -19,7 +19,7 @@ async function directPrint(plan:CardPanels,jobId:string){
 
 async function prepareNativePreview(plan:CardPanels){
  const health=await fetch(`${BRIDGE}/health`).then(response=>response.json());
- if(health.protocolVersion!==6)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии.');
+ if(health.protocolVersion!==7)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии.');
  const body=JSON.stringify(plan).replace(/[\u007f-\uffff]/g,char=>'\\u'+char.charCodeAt(0).toString(16).padStart(4,'0'));
  const response=await fetch(`${BRIDGE}/preview`,{method:'POST',headers:{'Content-Type':'application/json'},body});
  const result=await response.json() as{ok?:boolean;error?:string;previewDataUrl?:string};
@@ -62,7 +62,7 @@ async function main(){
  const identifierStep=document.querySelector<HTMLElement>('#identifier-step')!;
  const identifierSelect=document.querySelector<HTMLSelectElement>('#identifier-select')!;
  const positionStep=document.querySelector<HTMLElement>('#position-step')!;
- const positionInput=document.querySelector<HTMLInputElement>('#position-text')!;
+ const positionInput=document.querySelector<HTMLTextAreaElement>('#position-text')!;
  let panels:CardPanels|undefined;
  let isBusy=false;
  let printAttempted=false;
@@ -70,7 +70,8 @@ async function main(){
 
  const requiresPhoto=payload.type==='employee'||payload.type==='mosn';
  positionStep.hidden=!requiresPhoto;
- if(requiresPhoto)positionInput.value=prepareNativePosition(payload.employee.position||'').text;
+ if(payload.type==='mosn')document.querySelector('label[for="position-text"]')!.textContent='Комментарий на пропуске МОСН';
+ if(requiresPhoto)positionInput.value=prepareNativePosition((payload.type==='mosn'?payload.employee.comment:undefined)||payload.employee.position||'').text;
  let identifiers=Array.from(new Set(payload.employee.identifiers||[]));
  let currentCardAvailable=false;
  let selectedIdentifier=identifiers[0];
@@ -104,14 +105,14 @@ async function main(){
  else if(selectedPhoto){
   const position=prepareNativePosition(positionInput.value);
   positionInput.value=position.text;
-  if(!position.fits)throw new Error('Должность не помещается в строку шаблона. Сократите поле «Должность на пропуске» и нажмите «Применить». Размер шрифта не изменён.');
+  if(!position.fits)throw new Error('Текст не помещается в две строки шаблона. Сократите должность/комментарий и нажмите «Применить». Размер шрифта не изменён.');
   const plan:CardPanels={passType:payload.type,surname:employee.surname,name:employee.name,patronymic:employee.patronymic||'',position:position.text,employeeNumber:employee.employeeNumber||'',passNumber:employee.passNumber||'',photoDataUrl:await renderNativePhoto(selectedPhoto.dataUrl)};
   await setPreview(image,await prepareNativePreview(plan));
   panels=plan;
  }
   setControlsBusy(false);
  };
- positionInput.addEventListener('input',()=>{panels=undefined;printButton.disabled=true;status.textContent='Должность изменена. Нажмите «Применить», чтобы обновить предпросмотр.'});
+ positionInput.addEventListener('input',()=>{panels=undefined;printButton.disabled=true;status.textContent='Текст изменён. Нажмите «Применить», чтобы обновить предпросмотр.'});
  document.querySelector('#apply-position')!.addEventListener('click',async()=>{
   if(isBusy||printAttempted)return;
   try{await rerender();status.textContent=selectedPhoto?'Проверьте обновлённую должность и нажмите «Печать».':'Выберите исходный файл фотографии.'}

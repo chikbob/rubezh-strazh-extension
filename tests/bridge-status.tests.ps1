@@ -234,6 +234,16 @@ $nativeMaster = [NativeCsd]::Load((Join-Path $bridgeDir 'employee-native.csd'))
 $nativePhoto = [NativeCsd]::ExtractPhoto($nativeMaster)
 $nativeValues = [string[]]@('TestSurname','TestName','TestPatronymic','Position','99999','349602761')
 $nativeDocument = [NativeCsd]::Prepare($nativeMaster,$nativeValues,$nativePhoto,$false)
+$twoValues=[string[]]$nativeValues.Clone();$twoValues[3]="First line`nSecond line"
+$twoDocument=[NativeCsd]::Prepare($nativeMaster,$twoValues,$nativePhoto,$false)
+# The master stays immutable. Only the intended field height is enlarged;
+# printer chunk and font metadata are preserved by the narrow serializer.
+Assert-Bridge ([BitConverter]::ToInt32($nativeMaster,1529694+12) -eq 50) 'Master field height changed'
+Assert-Bridge ($twoDocument.Length -gt 25713) 'Two-line native CSD failed'
+for($i=0;$i -lt 25713;$i++){Assert-Bridge ($twoDocument[$i] -eq $nativeMaster[$i]) 'Two-line CSD changed printer chunk'}
+$threeValues=[string[]]$nativeValues.Clone();$threeValues[3]="One`nTwo`nThree"
+$failed=$false;try{[void][NativeCsd]::Prepare($nativeMaster,$threeValues,$nativePhoto,$false)}catch{$failed=$true}
+Assert-Bridge $failed 'Native CSD accepted three position lines'
 $mosnValues=[string[]]$nativeValues.Clone();$mosnValues[4]=''
 $mosnDocument=[NativeCsd]::Prepare($nativeMaster,$mosnValues,$nativePhoto,$true)
 Assert-Bridge ($mosnDocument.Length -gt 25713) 'MOSN template preparation failed'

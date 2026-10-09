@@ -4,7 +4,7 @@ const BRIDGE = 'http://127.0.0.1:18451';
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/bmp']);
 async function directPrint(plan, jobId) {
     const health = await fetch(`${BRIDGE}/health`).then(response => response.json());
-    if (health.protocolVersion !== 6)
+    if (health.protocolVersion !== 7)
         throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии, когда принтер не печатает. Старый мост не используется.');
     // Bridge HTTP framing counts ASCII bytes, including escaped Cyrillic text.
     const body = JSON.stringify({ ...plan, jobId }).replace(/[\u007f-\uffff]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
@@ -16,7 +16,7 @@ async function directPrint(plan, jobId) {
 }
 async function prepareNativePreview(plan) {
     const health = await fetch(`${BRIDGE}/health`).then(response => response.json());
-    if (health.protocolVersion !== 6)
+    if (health.protocolVersion !== 7)
         throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии.');
     const body = JSON.stringify(plan).replace(/[\u007f-\uffff]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
     const response = await fetch(`${BRIDGE}/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
@@ -71,8 +71,10 @@ async function main() {
     }
     const requiresPhoto = payload.type === 'employee' || payload.type === 'mosn';
     positionStep.hidden = !requiresPhoto;
+    if (payload.type === 'mosn')
+        document.querySelector('label[for="position-text"]').textContent = 'Комментарий на пропуске МОСН';
     if (requiresPhoto)
-        positionInput.value = prepareNativePosition(payload.employee.position || '').text;
+        positionInput.value = prepareNativePosition((payload.type === 'mosn' ? payload.employee.comment : undefined) || payload.employee.position || '').text;
     let identifiers = Array.from(new Set(payload.employee.identifiers || []));
     let currentCardAvailable = false;
     let selectedIdentifier = identifiers[0];
@@ -118,14 +120,14 @@ async function main() {
             const position = prepareNativePosition(positionInput.value);
             positionInput.value = position.text;
             if (!position.fits)
-                throw new Error('Должность не помещается в строку шаблона. Сократите поле «Должность на пропуске» и нажмите «Применить». Размер шрифта не изменён.');
+                throw new Error('Текст не помещается в две строки шаблона. Сократите должность/комментарий и нажмите «Применить». Размер шрифта не изменён.');
             const plan = { passType: payload.type, surname: employee.surname, name: employee.name, patronymic: employee.patronymic || '', position: position.text, employeeNumber: employee.employeeNumber || '', passNumber: employee.passNumber || '', photoDataUrl: await renderNativePhoto(selectedPhoto.dataUrl) };
             await setPreview(image, await prepareNativePreview(plan));
             panels = plan;
         }
         setControlsBusy(false);
     };
-    positionInput.addEventListener('input', () => { panels = undefined; printButton.disabled = true; status.textContent = 'Должность изменена. Нажмите «Применить», чтобы обновить предпросмотр.'; });
+    positionInput.addEventListener('input', () => { panels = undefined; printButton.disabled = true; status.textContent = 'Текст изменён. Нажмите «Применить», чтобы обновить предпросмотр.'; });
     document.querySelector('#apply-position').addEventListener('click', async () => {
         if (isBusy || printAttempted)
             return;

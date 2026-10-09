@@ -442,7 +442,7 @@ while ($true) {
         if ($requestLine -match '^OPTIONS ') {
             Send-Response $stream 200 '{"ok":true}'
         } elseif ($requestLine -match '^GET /health ') {
-            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 6 } | ConvertTo-Json -Compress)
+            Send-Response $stream 200 (@{ ok = $true; printer = Get-SmartPrinter; protocolVersion = 7 } | ConvertTo-Json -Compress)
         } elseif ($requestLine -match '^POST /(print|preview) ' -and $contentLength -gt 0 -and $contentLength -le 16777216) {
             $previewOnly = $Matches[1] -eq 'preview'
             $chars = New-Object char[] $contentLength

@@ -37,7 +37,11 @@ public static class NativeCsd {
         return result;
     }
     public static byte[] ReplaceString(byte[] data, string oldValue, string newValue) {
-        if (newValue == null || newValue.Length > 200 || newValue.IndexOf('\0') >= 0 || newValue.IndexOf('\r') >= 0 || newValue.IndexOf('\n') >= 0)
+        return ReplaceText(data,oldValue,newValue,false);
+    }
+    static byte[] ReplaceText(byte[] data, string oldValue, string newValue, bool twoLines) {
+        if (newValue == null || newValue.Length > 200 || newValue.IndexOf('\0') >= 0 || newValue.IndexOf('\r') >= 0 ||
+            (!twoLines && newValue.IndexOf('\n') >= 0) || (twoLines && newValue.Split('\n').Length > 2))
             throw new InvalidOperationException("Invalid native template text.");
         byte[] oldString = CString(oldValue);
         return Splice(data, FindOnce(data, oldString), oldString.Length, CString(newValue));
@@ -78,7 +82,16 @@ public static class NativeCsd {
         if (values == null || values.Length != Slots.Length || String.IsNullOrWhiteSpace(values[0]) || String.IsNullOrWhiteSpace(values[1]) || !System.Text.RegularExpressions.Regex.IsMatch(values[5], "^[0-9]{6,12}$"))
             throw new InvalidOperationException("Missing native pass data.");
         byte[] result = (byte[])master.Clone();
-        for (int i = 0; i < Slots.Length; i++) result = ReplaceString(result, Slots[i], values[i]);
+        if (values[3] != null && values[3].IndexOf('\n') >= 0) {
+            // SHA-locked master: position rectangle is 609 bytes before its
+            // CString. Its bottom remains above the number row at y=391.
+            int rect = FindOnce(result,CString(Slots[3])) - 609;
+            int[] expected = {456,296,556,50};
+            for (int i=0;i<4;i++) if (BitConverter.ToInt32(result,rect+i*4)!=expected[i])
+                throw new InvalidOperationException("Unexpected native position layout; no print was sent.");
+            Buffer.BlockCopy(BitConverter.GetBytes(90),0,result,rect+12,4);
+        }
+        for (int i = 0; i < Slots.Length; i++) result = ReplaceText(result, Slots[i], values[i], i==3);
         if (mosn) result = ReplaceString(result, "\u0422\u0430\u0431. \u2116 ", "\u041c\u041e\u0421\u041d");
         return ReplacePhoto(result, photo);
     }

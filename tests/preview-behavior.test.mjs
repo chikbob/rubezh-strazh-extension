@@ -5,10 +5,11 @@ import ts from 'typescript';
 import {JSDOM} from 'jsdom';
 const employee={fullName:'Иван Иванов',surname:'Иванов',name:'Иван',employeeNumber:'01057',identifiers:['389369658']};
 const code=ts.transpileModule(fs.readFileSync(new URL('../extension-ts/print.ts',import.meta.url),'utf8').replace(/\r?\n/g,'\r\n').replace(/^import[^\n]*(?:\n|$)/gm,'').replace('void main();','window.started=main();'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText;
-async function preview(type='temporary'){
+async function preview(type='temporary',extra={}){
  const dom=new JSDOM(fs.readFileSync(new URL('../src/print.html',import.meta.url),'utf8'),{url:'https://extension.test/print.html?payload=printPayload-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',runScripts:'outside-only'});
  const w=dom.window,rendered=[],requests=[];
- let snapshot=structuredClone(employee),protocolVersion=6,previewError=false;
+ const person={...structuredClone(employee),...extra};
+ let snapshot=structuredClone(person),protocolVersion=7,previewError=false;
  w.FileReader=class{readAsDataURL(){this.result='data:image/png;base64,AA==';this.onload()}};
  w.Image=class{naturalWidth=386;naturalHeight=502;set src(value){this.onload()}};
  w.HTMLImageElement.prototype.decode=async()=>{};
@@ -16,7 +17,7 @@ async function preview(type='temporary'){
  w.renderCardObjects=async()=>({objects:[{kind:'text',text:'Иванов'}]});
  w.renderNativePhoto=async()=> 'data:image/png;base64,AA==';
  w.prepareNativePosition=input=>({text:input,fits:input.length<60,changed:false});
- w.chrome={storage:{session:{get:async key=>({[key]:{employee:structuredClone(employee),type,sourceTabId:42}}),remove:async()=>{}}},tabs:{sendMessage:async id=>{assert.equal(id,42);return{ok:true,employee:structuredClone(snapshot)}}}};
+ w.chrome={storage:{session:{get:async key=>({[key]:{employee:structuredClone(person),type,sourceTabId:42}}),remove:async()=>{}}},tabs:{sendMessage:async id=>{assert.equal(id,42);return{ok:true,employee:structuredClone(snapshot)}}}};
  w.fetch=async(url,options)=>{requests.push({url,options});return{ok:true,json:async()=>url.endsWith('/health')?{protocolVersion}:url.endsWith('/preview')?(previewError?{ok:false,error:'Invalid CSD'}:{ok:true,previewDataUrl:'data:image/png;base64,U0RL'}):{ok:true,printer:'SMART-51'}}};
  w.setInterval=fn=>{w.poll=fn};w.setTimeout=()=>{};
  w.eval(code);await w.started;
@@ -98,4 +99,12 @@ test('position edits invalidate the old preview and apply without changing sourc
  p.w.document.querySelector('#apply-position').click();await settle();
  assert.equal(button.disabled,true);assert.equal(p.requests.filter(r=>r.url.endsWith('/preview')).length,2);
  assert.match(p.w.document.querySelector('#status').textContent,/не помещается/);p.dom.window.close();
+});
+test('MOSN uses the editable comment and sends two lines unchanged to native preview/print',async()=>{
+ const p=await preview('mosn',{comment:'Комментарий\nПродолжение',position:'Должность сотрудника'});await attachPhoto(p);
+ assert.equal(p.w.document.querySelector('label[for="position-text"]').textContent,'Комментарий на пропуске МОСН');
+ assert.equal(p.w.document.querySelector('#position-text').tagName,'TEXTAREA');
+ assert.equal(JSON.parse(p.requests.find(r=>r.url.endsWith('/preview')).options.body).position,'Комментарий\nПродолжение');
+ p.w.document.querySelector('#confirm-print').click();await waitFor(()=>p.requests.some(r=>r.url.endsWith('/print')));
+ assert.equal(JSON.parse(p.requests.find(r=>r.url.endsWith('/print')).options.body).position,'Комментарий\nПродолжение');p.dom.window.close();
 });
