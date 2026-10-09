@@ -51,7 +51,7 @@ function wrap(text:string,fits:(value:string)=>boolean):string[]|undefined{
  const tokens=text.split(' ').flatMap(word=>fits(word)?[word]:word.split(/(?<=-)/u));
  const lines:string[]=[];let line='';let previous='';
  for(const token of tokens){
-  const separator=line&&!previous.endsWith('-')?' ':'';
+  const separator=line&&(!previous.endsWith('-')||previous==='-')?' ':'';
   const next=line+separator+token;
   if(fits(next))line=next;
   else {if(line)lines.push(line);if(!fits(token))return undefined;line=token}

@@ -84,12 +84,13 @@ public static class NativeCsd {
         byte[] result = (byte[])master.Clone();
         if (values[3] != null && values[3].IndexOf('\n') >= 0) {
             // SHA-locked master: position rectangle is 609 bytes before its
-            // CString. Its bottom remains above the number row at y=391.
+            // CString. Its bottom meets the number row at y=391. Text has
+            // its own 4px margins, so glyphs do not touch the following row.
             int rect = FindOnce(result,CString(Slots[3])) - 609;
             int[] expected = {456,296,556,50};
             for (int i=0;i<4;i++) if (BitConverter.ToInt32(result,rect+i*4)!=expected[i])
                 throw new InvalidOperationException("Unexpected native position layout; no print was sent.");
-            Buffer.BlockCopy(BitConverter.GetBytes(90),0,result,rect+12,4);
+            Buffer.BlockCopy(BitConverter.GetBytes(95),0,result,rect+12,4);
         }
         for (int i = 0; i < Slots.Length; i++) result = ReplaceText(result, Slots[i], values[i], i==3);
         if (mosn) result = ReplaceString(result, "\u0422\u0430\u0431. \u2116 ", "\u041c\u041e\u0421\u041d");

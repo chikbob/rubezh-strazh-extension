@@ -55,7 +55,7 @@ function wrap(text, fits) {
     let line = '';
     let previous = '';
     for (const token of tokens) {
-        const separator = line && !previous.endsWith('-') ? ' ' : '';
+        const separator = line && (!previous.endsWith('-') || previous === '-') ? ' ' : '';
         const next = line + separator + token;
         if (fits(next))
             line = next;

@@ -35,6 +35,7 @@ test('long titles wrap without lost words, including existing hyphens',()=>{
  const manual=fitNativePosition('Первая строка\nПродолжение',text=>text.length<=20);
  assert.equal(manual.text,'Первая строка\nПродолжение');
  assert.equal(fitNativePosition('один\nдва\nтри',()=>true).fits,false);
+ assert.equal(fitNativePosition('Длинное - слово продолжение',text=>text.length<=20).text,'Длинное - слово\nпродолжение');
 });
 test('archive examples and administration/accounting/IT keep semantic words',()=>{
  const examples=['Младшая медицинская сестра по уходу за больными','Заведующий эндоскопическим отделением - врач-эндоскопист','Инженер по обслуживанию медицинского оборудования','Заведующий больничной аптекой готовых лекарственных форм','Врач приемного отделения - врач-хирург','Уборщик служебных помещений','Медицинская сестра палатная (постовая)','Системный администратор информационных систем','Специалист по бухгалтерскому учету','Начальник административного отдела'];
