@@ -2,7 +2,7 @@
 // section. Only the small, audited Markdown subset used by that section is
 // supported: paragraphs, headings, links, images, code and flat lists.
 import fs from 'node:fs';
-const readme=fs.readFileSync('README.md','utf8');
+const readme=fs.readFileSync('README.md','utf8').replace(/\r\n/g,'\n');
 const start=readme.indexOf('## Установка в Яндекс Браузер');
 const end=readme.indexOf('## Релиз ',start);
 if(start<0||end<0)throw Error('Installation section is missing');
@@ -45,7 +45,7 @@ ${content}
 <footer><a href="help.html">Как пользоваться расширением</a> · Эта страница доступна из распакованного комплекта без интернета. Для скачивания релиза нужен интернет. Пароли и служебные настройки не вводятся по чужим примерам.</footer></main></body></html>
 `;
 if(process.argv.includes('--check')){
- if(fs.readFileSync('src/install.html','utf8')!==page)throw Error('Installation HTML is out of sync with README');
+ if(fs.readFileSync('src/install.html','utf8').replace(/\r\n/g,'\n')!==page)throw Error('Installation HTML is out of sync with README');
  console.log('Offline installation guide matches README.');
 }else{
  fs.writeFileSync('src/install.html',page);
