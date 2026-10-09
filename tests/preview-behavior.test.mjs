@@ -9,7 +9,7 @@ async function preview(type='temporary',extra={}){
  const dom=new JSDOM(fs.readFileSync(new URL('../src/print.html',import.meta.url),'utf8'),{url:'https://extension.test/print.html?payload=printPayload-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',runScripts:'outside-only'});
  const w=dom.window,rendered=[],requests=[];
  const person={...structuredClone(employee),...extra};
- let snapshot=structuredClone(person),protocolVersion=7,previewError=false;
+ let snapshot=structuredClone(person),protocolVersion=8,previewError=false;
  w.FileReader=class{readAsDataURL(){this.result='data:image/png;base64,AA==';this.onload()}};
  w.Image=class{naturalWidth=386;naturalHeight=502;set src(value){this.onload()}};
  w.HTMLImageElement.prototype.decode=async()=>{};

@@ -8,7 +8,7 @@ type CardPanels=Partial<EmployeeData>&{passType:PassType;photoDataUrl?:string;ob
 
 async function directPrint(plan:CardPanels,jobId:string){
  const health=await fetch(`${BRIDGE}/health`).then(response=>response.json());
- if(health.protocolVersion!==7)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии, когда принтер не печатает. Старый мост не используется.');
+ if(health.protocolVersion!==8)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии, когда принтер не печатает. Старый мост не используется.');
  // Bridge HTTP framing counts ASCII bytes, including escaped Cyrillic text.
  const body=JSON.stringify({...plan,jobId}).replace(/[\u007f-\uffff]/g,char=>'\\u'+char.charCodeAt(0).toString(16).padStart(4,'0'));
  const response=await fetch(`${BRIDGE}/print`,{method:'POST',headers:{'Content-Type':'application/json'},body});
@@ -19,7 +19,7 @@ async function directPrint(plan:CardPanels,jobId:string){
 
 async function prepareNativePreview(plan:CardPanels){
  const health=await fetch(`${BRIDGE}/health`).then(response=>response.json());
- if(health.protocolVersion!==7)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии.');
+ if(health.protocolVersion!==8)throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии.');
  const body=JSON.stringify(plan).replace(/[\u007f-\uffff]/g,char=>'\\u'+char.charCodeAt(0).toString(16).padStart(4,'0'));
  const response=await fetch(`${BRIDGE}/preview`,{method:'POST',headers:{'Content-Type':'application/json'},body});
  const result=await response.json() as{ok?:boolean;error?:string;previewDataUrl?:string};

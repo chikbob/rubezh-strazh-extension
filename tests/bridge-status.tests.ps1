@@ -236,17 +236,53 @@ $nativeValues = [string[]]@('TestSurname','TestName','TestPatronymic','Position'
 $nativeDocument = [NativeCsd]::Prepare($nativeMaster,$nativeValues,$nativePhoto,$false)
 $twoValues=[string[]]$nativeValues.Clone();$twoValues[3]="First line`nSecond line"
 $twoDocument=[NativeCsd]::Prepare($nativeMaster,$twoValues,$nativePhoto,$false)
-# The master stays immutable. Only the intended field height is enlarged;
-# printer chunk and font metadata are preserved by the narrow serializer.
+# Inspect two independent serialized text objects, not a multiline CString.
+function Find-TestBytes([byte[]]$data,[byte[]]$needle) {
+    for($i=0;$i -le $data.Length-$needle.Length;$i++) {
+        if($data[$i] -ne $needle[0]){continue}
+        $match=$true
+        for($j=1;$j -lt $needle.Length;$j++){if($data[$i+$j] -ne $needle[$j]){$match=$false;break}}
+        if($match){return $i}
+    }
+    return -1
+}
 Assert-Bridge ([BitConverter]::ToInt32($nativeMaster,1529694+12) -eq 50) 'Master field height changed'
-Assert-Bridge ($twoDocument.Length -gt 25713) 'Two-line native CSD failed'
+Assert-Bridge ([BitConverter]::ToUInt16($nativeMaster,25749) -eq 12) 'Master object count changed'
+foreach($doc in @($nativeDocument,$twoDocument)) {
+    Assert-Bridge ([BitConverter]::ToUInt16($doc,25749) -eq 13) 'Second position object missing'
+}
+$first=Find-TestBytes $twoDocument ([NativeCsd]::CString('First line'))
+$second=Find-TestBytes $twoDocument ([NativeCsd]::CString('Second line'))
+Assert-Bridge ($first -gt 0 -and $second -gt $first) 'Position split text missing'
+Assert-Bridge ((Find-TestBytes $twoDocument ([NativeCsd]::CString("First line`nSecond line"))) -eq -1) 'SDK still receives a multiline text object'
+foreach($pair in @(@($first,296),@($second,341))) {
+    $rect=$pair[0]-609
+    Assert-Bridge ([BitConverter]::ToInt32($twoDocument,$rect) -eq 456) 'Position object left differs'
+    Assert-Bridge ([BitConverter]::ToInt32($twoDocument,$rect+4) -eq $pair[1]) 'Position object top differs'
+    Assert-Bridge ([BitConverter]::ToInt32($twoDocument,$rect+8) -eq 556) 'Position object width differs'
+    Assert-Bridge ([BitConverter]::ToInt32($twoDocument,$rect+12) -eq 50) 'Position object height differs'
+    # All remaining font, alignment, margins, border and panel bytes must match.
+    for($i=16;$i -lt 609;$i++){Assert-Bridge ($twoDocument[$rect+$i] -eq $nativeMaster[1529694+$i]) 'Position font/style metadata changed'}
+}
+# A short title still creates an empty continuation object (one string slot only).
+$short=Find-TestBytes $nativeDocument ([NativeCsd]::CString('Position'))
+$emptyStart=$short+([NativeCsd]::CString('Position')).Length
+Assert-Bridge ([BitConverter]::ToInt32($nativeDocument,$emptyStart+16) -eq 341) 'Empty continuation has wrong top'
+Assert-Bridge ([BitConverter]::ToInt32($nativeDocument,$emptyStart+621) -eq 0) 'Short title continuation is not empty'
 for($i=0;$i -lt 25713;$i++){Assert-Bridge ($twoDocument[$i] -eq $nativeMaster[$i]) 'Two-line CSD changed printer chunk'}
 $threeValues=[string[]]$nativeValues.Clone();$threeValues[3]="One`nTwo`nThree"
 $failed=$false;try{[void][NativeCsd]::Prepare($nativeMaster,$threeValues,$nativePhoto,$false)}catch{$failed=$true}
 Assert-Bridge $failed 'Native CSD accepted three position lines'
+foreach($offset in @(25749,1529694)) {
+    $badMaster=[byte[]]$nativeMaster.Clone();$badMaster[$offset]=0
+    $failed=$false;try{[void][NativeCsd]::Prepare($badMaster,$twoValues,$nativePhoto,$false)}catch{$failed=$true}
+    Assert-Bridge $failed 'Native CSD accepted an unsupported object list/layout'
+}
 $mosnValues=[string[]]$nativeValues.Clone();$mosnValues[4]=''
+$mosnValues[3]="Comment first`nComment continuation"
 $mosnDocument=[NativeCsd]::Prepare($nativeMaster,$mosnValues,$nativePhoto,$true)
 Assert-Bridge ($mosnDocument.Length -gt 25713) 'MOSN template preparation failed'
+Assert-Bridge ((Find-TestBytes $mosnDocument ([NativeCsd]::CString('Comment continuation'))) -gt 0) 'MOSN continuation is missing'
 # Independent check of every replacement and exact original PRN settings chunk.
 $masterText = [Text.Encoding]::Unicode.GetString($nativeMaster)
 $documentText = [Text.Encoding]::Unicode.GetString($nativeDocument)

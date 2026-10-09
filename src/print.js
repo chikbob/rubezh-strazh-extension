@@ -4,7 +4,7 @@ const BRIDGE = 'http://127.0.0.1:18451';
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/bmp']);
 async function directPrint(plan, jobId) {
     const health = await fetch(`${BRIDGE}/health`).then(response => response.json());
-    if (health.protocolVersion !== 7)
+    if (health.protocolVersion !== 8)
         throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии, когда принтер не печатает. Старый мост не используется.');
     // Bridge HTTP framing counts ASCII bytes, including escaped Cyrillic text.
     const body = JSON.stringify({ ...plan, jobId }).replace(/[\u007f-\uffff]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
@@ -16,7 +16,7 @@ async function directPrint(plan, jobId) {
 }
 async function prepareNativePreview(plan) {
     const health = await fetch(`${BRIDGE}/health`).then(response => response.json());
-    if (health.protocolVersion !== 7)
+    if (health.protocolVersion !== 8)
         throw new Error('Обновите Print Bridge: запустите bridge\\install.cmd из новой версии.');
     const body = JSON.stringify(plan).replace(/[\u007f-\uffff]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
     const response = await fetch(`${BRIDGE}/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
